@@ -1353,6 +1353,7 @@
 
       const BATCH=20;
       let batch=[], totalUploaded=0, totalSkipped=0;
+      const seenSourceIds = new Set();
 
       try {
         for (let i=0;i<allFiles.length;i++) {
@@ -1387,6 +1388,8 @@
               parsed.source=file.name.toLowerCase().startsWith('route_')?'apple_health':'gpx';
             }
             delete parsed._d; delete parsed._t; delete parsed._g;
+            if (parsed.source_id && seenSourceIds.has(parsed.source_id)) { totalSkipped++; continue; }
+            if (parsed.source_id) seenSourceIds.add(parsed.source_id);
             batch.push(parsed);
 
             if (batch.length>=BATCH) {
