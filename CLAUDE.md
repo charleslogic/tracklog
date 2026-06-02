@@ -14,7 +14,7 @@ Static HTML + Vercel serverless API functions. No build step. Same pattern as Tr
 ```
 tracklog/
 ├── index.html              — single-page app (auth, Leaflet map, import pipeline, all UI)
-├── tracklog-icon.png       — app icon (needs to be created)
+├── tracklog-icon.svg       — app icon (blue gradient, GPS map pin + pulse rings)
 ├── supabase-setup.sql      — run once in Supabase dashboard to create tables
 ├── supabase.umd.js         — self-hosted Supabase JS library
 ├── manifest.json           — PWA manifest
