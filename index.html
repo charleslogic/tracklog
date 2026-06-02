@@ -1292,11 +1292,11 @@
     // ── Import flow ──
     let importing = false;
     document.getElementById('import-btn').addEventListener('click', () => {
+      configCard.classList.remove('show'); userBtn.classList.remove('active');
       if (!window.showDirectoryPicker) {
         toast('Folder picker requires Chrome or Edge', 5000);
         return;
       }
-      configCard.classList.remove('show'); userBtn.classList.remove('active');
       runImport();
     });
 
