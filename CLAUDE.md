@@ -102,7 +102,11 @@ Shows: wipe button, max tracks input, delete button on track detail.
 
 ## Version Display
 
-Nav shows short git SHA from `VERCEL_GIT_COMMIT_SHA` (set by Vercel), formatted in `api/types.js`. Falls back to cold-start time in local dev.
+Nav shows short git SHA from `VERCEL_GIT_COMMIT_SHA` (set by Vercel automatically), emitted as `X-App-Version` response header by `api/types.js` and read from the response in `index.html`. Falls back to cold-start timestamp in local dev. Same pattern as TrailView and Annoyed.
+
+## Service Worker
+
+Cache name `tracklog-v1`. **Do not bump the cache name to deploy new HTML** — the SW uses a **network-first strategy for HTML** (always fetches fresh, falls back to cache when offline). Static assets (Leaflet, supabase.umd.js) are cache-first. API requests (`/api`) are network-only with an offline JSON fallback. Only bump the cache name if the precache list itself changes.
 
 ## Auth
 
