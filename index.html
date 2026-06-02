@@ -1,0 +1,1525 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TrackLog</title>
+  <link rel="apple-touch-icon" href="tracklog-icon.png">
+  <link rel="icon" type="image/png" href="tracklog-icon.png">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#2563eb">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="TrackLog">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H" crossorigin="anonymous">
+  <style>
+    :root {
+      --bg: #ffffff; --bg2: #f4f4f5; --bg3: #e5e5e7;
+      --text: #1a1a2e; --text2: #6b6b80; --border: #d1d1da;
+      --accent: #2563eb; --danger: #dc2626;
+      --panel-w: 340px; --nav-h: 52px; --radius: 10px;
+      --shadow: 0 2px 12px rgba(0,0,0,.12); --tr: .22s ease;
+    }
+    [data-theme="dark"] {
+      --bg: #111827; --bg2: #1f2937; --bg3: #374151;
+      --text: #f0f0f8; --text2: #9ca3af; --border: #374151;
+      --accent: #60a5fa; --shadow: 0 2px 12px rgba(0,0,0,.45);
+    }
+    *,*::before,*::after { box-sizing:border-box; margin:0; padding:0; }
+    html,body { height:100%; font-family:system-ui,-apple-system,'Segoe UI',sans-serif; background:var(--bg); color:var(--text); overflow:hidden; }
+
+    /* ── Nav ── */
+    #nav { position:fixed; top:0; left:0; right:0; z-index:1000; height:var(--nav-h); background:var(--bg); border-bottom:1px solid var(--border); display:flex; align-items:center; gap:6px; padding:0 10px; box-shadow:var(--shadow); }
+    #nav .logo { font-weight:800; font-size:1.05rem; color:var(--accent); letter-spacing:-.4px; white-space:nowrap; }
+    #nav .logo .ver { font-size:.65rem; font-weight:500; color:var(--text2); letter-spacing:0; margin-left:3px; vertical-align:middle; }
+    .nav-btn { display:inline-flex; align-items:center; gap:5px; padding:6px 11px; border-radius:7px; border:1px solid var(--border); background:var(--bg2); color:var(--text); cursor:pointer; font-size:.8rem; font-weight:500; white-space:nowrap; transition:background var(--tr); font-family:inherit; line-height:1; }
+    .nav-btn:hover { background:var(--bg3); }
+    #user-btn { margin-left:auto; gap:6px; }
+    #user-name-label { max-width:80px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+    /* ── Import modal (reuses sync-modal styles) ── */
+    #import-modal { position:fixed; inset:0; z-index:8600; background:rgba(0,0,0,.5); display:flex; align-items:center; justify-content:center; padding:20px; }
+    #import-modal-card { background:var(--bg); border:1px solid var(--border); border-radius:14px; padding:32px 28px; max-width:340px; width:100%; text-align:center; box-shadow:0 12px 40px rgba(0,0,0,.3); }
+    .sync-modal-spinner { width:38px; height:38px; margin:0 auto 18px; border:3px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite; }
+    .sync-modal-spinner.done { border:none; animation:none; width:auto; height:auto; font-size:2.2rem; line-height:38px; color:var(--accent); }
+    .sync-modal-spinner.error { color:var(--danger); }
+    .sync-modal-title { font-size:1.15rem; font-weight:700; color:var(--text); margin-bottom:8px; }
+    .sync-modal-status { font-size:.88rem; color:var(--text2); line-height:1.5; margin-bottom:20px; white-space:pre-line; }
+    #import-modal-actions { display:flex; gap:8px; }
+    #import-modal-actions .ob-btn { flex:1; margin-bottom:0; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+
+    /* ── Map ── */
+    #map { position:fixed; top:var(--nav-h); left:0; right:0; bottom:0; z-index:1; transition:right var(--tr); }
+    @media (min-width:768px) { body:not(.panel-collapsed) #map { right:var(--panel-w); } }
+
+    /* ── Basemap switcher ── */
+    #basemap-switcher { position:fixed; left:10px; top:calc(var(--nav-h) + 8px); z-index:800; display:flex; gap:4px; }
+    .bm-btn { padding:5px 9px; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text2); cursor:pointer; font-size:.72rem; font-weight:600; box-shadow:var(--shadow); transition:background var(--tr),color var(--tr); font-family:inherit; }
+    .bm-btn.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+
+    /* ── Map controls ── */
+    #map-controls { position:fixed; left:10px; z-index:800; display:flex; flex-direction:column; gap:5px; bottom:calc(50vh + 10px); transition:bottom var(--tr); }
+    @media (min-width:768px) { #map-controls { bottom:16px; } }
+    @media (max-width:767px) { body.panel-collapsed #map-controls { bottom:90px; } }
+    .mc-btn { width:36px; height:36px; border-radius:7px; background:var(--bg); border:1px solid var(--border); color:var(--text); cursor:pointer; display:flex; align-items:center; justify-content:center; box-shadow:var(--shadow); font-size:1rem; line-height:1; transition:background var(--tr); font-family:inherit; }
+    .mc-btn:hover { background:var(--bg2); }
+    .mc-btn.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+    #ctrl-heat { -webkit-touch-callout:none; -webkit-user-select:none; user-select:none; }
+
+    /* ── Panel ── */
+    #panel { position:fixed; z-index:900; background:var(--bg); display:flex; flex-direction:column; transition:transform var(--tr); }
+    @media (max-width:767px) {
+      #panel { left:0; right:0; bottom:0; height:50vh; max-height:82vh; border-top:1px solid var(--border); border-radius:var(--radius) var(--radius) 0 0; box-shadow:0 -4px 24px rgba(0,0,0,.14); }
+      #panel.collapsed { transform:translateY(calc(100% - 84px)); }
+      #drag-handle { display:flex; }
+    }
+    @media (min-width:768px) {
+      #panel { right:0; top:var(--nav-h); bottom:0; width:var(--panel-w); border-left:1px solid var(--border); box-shadow:-2px 0 12px rgba(0,0,0,.08); }
+      #panel.collapsed { transform:translateX(100%); }
+      #drag-handle { display:none; }
+    }
+    #drag-handle { display:none; justify-content:center; align-items:center; flex-direction:column; gap:5px; min-height:44px; cursor:pointer; flex-shrink:0; }
+    #drag-handle span { width:36px; height:4px; background:var(--text2); border-radius:2px; opacity:.45; }
+    #drag-handle::after { content:'▼'; font-size:.52rem; color:var(--text2); opacity:.5; line-height:1; transition:transform var(--tr); }
+    #panel.collapsed #drag-handle::after { transform:rotate(180deg); }
+    #panel-toggle { position:fixed; z-index:950; top:50%; transform:translateY(-50%); background:var(--bg); border:1px solid var(--border); border-right:none; border-radius:8px 0 0 8px; padding:10px 5px; cursor:pointer; color:var(--text2); font-size:1rem; box-shadow:-2px 0 8px rgba(0,0,0,.1); transition:right var(--tr); display:none; right:var(--panel-w); }
+    body.panel-collapsed #panel-toggle { right:0; }
+    @media (min-width:768px) { #panel-toggle { display:block; } }
+
+    /* ── Panel tabs ── */
+    #panel-tabs { display:flex; border-bottom:1px solid var(--border); flex-shrink:0; }
+    .tab-btn { flex:1; padding:10px 4px; background:none; border:none; cursor:pointer; font-size:.78rem; font-weight:600; color:var(--text2); border-bottom:2px solid transparent; transition:color var(--tr),border-color var(--tr); font-family:inherit; }
+    .tab-btn.active { color:var(--accent); border-bottom-color:var(--accent); }
+    #panel-body { flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch; }
+    #panel-body::-webkit-scrollbar { width:4px; }
+    #panel-body::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
+    .tab-pane { display:none; padding:8px 13px 13px; }
+    .tab-pane.active { display:block; }
+
+    /* ── Filters ── */
+    .filter-section { margin-bottom:10px; }
+    .filter-label { display:block; margin-bottom:4px; font-size:.68rem; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--text2); }
+    #type-toggles { display:flex; flex-wrap:wrap; gap:6px; }
+    .type-toggle { padding:5px 13px; border-radius:20px; border:2px solid; background:transparent; cursor:pointer; font-size:.76rem; font-weight:700; transition:background var(--tr),color var(--tr); font-family:inherit; }
+    .type-toggle.on { color:#fff !important; }
+    .date-row { display:flex; align-items:center; gap:6px; }
+    .date-row input[type="date"] { flex:1; padding:5px 8px; border:1px solid var(--border); border-radius:7px; background:var(--bg2); color:var(--text); font-size:.8rem; font-family:inherit; }
+    .date-sep { color:var(--text2); font-size:.75rem; flex-shrink:0; }
+    .filter-btn { display:block; width:100%; margin-top:4px; padding:6px; border-radius:8px; border:1px solid var(--border); background:var(--bg2); color:var(--text); cursor:pointer; font-size:.8rem; font-weight:600; font-family:inherit; transition:background var(--tr); }
+    .filter-btn:hover { background:var(--bg3); }
+    .filter-btn.secondary { color:var(--text2); font-weight:500; }
+    .heat-intensity-row { display:flex; align-items:center; gap:8px; margin-top:4px; }
+    .heat-lbl { font-size:.7rem; color:var(--text2); white-space:nowrap; flex-shrink:0; }
+    #heat-intensity { flex:1; accent-color:var(--accent); cursor:pointer; }
+    #heat-popup { display:none; position:fixed; left:54px; z-index:801; bottom:calc(50vh + 10px); background:var(--bg); border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow); padding:8px 12px; white-space:nowrap; }
+    #heat-popup.show { display:flex; align-items:center; gap:8px; }
+    @media (min-width:768px) { #heat-popup { bottom:16px; } }
+    @media (max-width:767px) { body.panel-collapsed #heat-popup { bottom:90px; } }
+    #heat-popup-intensity { width:130px; accent-color:var(--accent); cursor:pointer; }
+
+    /* ── Type strip ── */
+    #type-strip { padding:7px 13px 8px; border-bottom:1px solid var(--border); flex-shrink:0; }
+
+    /* ── Sort bar ── */
+    #tab-tracks { padding:0; }
+    #sort-bar { display:flex; align-items:center; gap:5px; padding:8px 13px 9px; border-bottom:1px solid var(--border); flex-shrink:0; }
+    .sort-lbl { font-size:.68rem; color:var(--text2); font-weight:700; text-transform:uppercase; letter-spacing:.06em; margin-right:2px; }
+    .sort-btn { padding:4px 10px; border-radius:20px; border:1px solid var(--border); background:var(--bg2); color:var(--text2); cursor:pointer; font-size:.7rem; font-weight:600; font-family:inherit; transition:background var(--tr),color var(--tr); }
+    .sort-btn.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+
+    /* ── Track list ── */
+    #track-list { display:flex; flex-direction:column; gap:3px; padding:8px 13px 13px; }
+    .track-item { padding:9px 11px; border-radius:8px; background:var(--bg2); cursor:pointer; border-left:4px solid transparent; transition:background var(--tr); }
+    .track-item:hover { background:var(--bg3); }
+    .track-item.selected { background:var(--bg3); }
+    .ti-top { display:flex; align-items:baseline; gap:6px; margin-bottom:2px; }
+    .ti-name { font-size:.83rem; font-weight:600; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .ti-date { font-size:.7rem; color:var(--text2); white-space:nowrap; flex-shrink:0; }
+    .ti-meta { font-size:.72rem; color:var(--text2); }
+    #no-tracks { color:var(--text2); font-size:.83rem; padding:24px; text-align:center; line-height:1.8; }
+
+    /* ── Detail ── */
+    .detail-header { display:flex; align-items:flex-start; gap:8px; margin-bottom:14px; }
+    .detail-title { flex:1; font-size:.96rem; font-weight:700; line-height:1.3; }
+    .detail-close { background:none; border:1px solid var(--border); border-radius:6px; padding:3px 8px; cursor:pointer; color:var(--text2); font-size:.8rem; font-family:inherit; }
+    .stat-grid { display:grid; grid-template-columns:1fr 1fr; gap:7px; margin-bottom:10px; }
+    .stat-box { background:var(--bg2); border-radius:8px; padding:9px 10px; }
+    .stat-box.full { grid-column:1/-1; }
+    .stat-val { font-size:1.05rem; font-weight:700; color:var(--accent); line-height:1.2; }
+    .stat-lbl { font-size:.68rem; color:var(--text2); margin-top:2px; }
+    .detail-delete { display:block; width:100%; margin-top:12px; padding:9px; border-radius:8px; border:1px solid var(--danger); background:transparent; color:var(--danger); cursor:pointer; font-size:.8rem; font-weight:700; font-family:inherit; transition:background var(--tr),color var(--tr); }
+    .detail-delete:hover { background:var(--danger); color:#fff; }
+
+    /* ── Elevation chart ── */
+    #elev-wrap { margin-bottom:12px; }
+    #elev-canvas { width:100%; height:72px; display:block; border-radius:6px; }
+    #elev-label { font-size:.68rem; color:var(--text2); text-align:center; margin-top:3px; }
+    #no-detail { color:var(--text2); font-size:.83rem; padding:32px 16px; text-align:center; line-height:1.6; }
+
+    /* ── Toast ── */
+    #toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%) translateY(80px); z-index:2000; background:var(--text); color:var(--bg); padding:9px 20px; border-radius:20px; font-size:.8rem; font-weight:500; transition:transform .28s ease; pointer-events:none; white-space:nowrap; }
+    #toast.show { transform:translateX(-50%) translateY(0); }
+    @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:.35 } }
+    .scanning { animation:pulse .9s infinite; }
+
+    /* ── Config card ── */
+    #config-card { display:none; position:fixed; top:calc(var(--nav-h) + 6px); right:8px; z-index:1500; background:var(--bg); border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow); padding:10px; min-width:260px; max-width:320px; max-height:calc(100dvh - var(--nav-h) - 20px); overflow-y:auto; }
+    #config-card.show { display:block; }
+    #user-menu-header { padding:4px 2px 8px; }
+    #user-menu-name { font-size:.9rem; font-weight:700; color:var(--text); line-height:1.3; }
+    #user-menu-email { font-size:.75rem; color:var(--text2); margin-top:1px; }
+    .invite-row { font-size:.78rem; padding:6px 8px; border:1px solid var(--border); border-radius:6px; margin-bottom:5px; line-height:1.4; }
+    .invite-used { color:var(--text2); font-size:.72rem; }
+
+    /* ── Manager-mode visibility ── */
+    #manager-section { display:none; }
+    #d-delete { display:none !important; }
+    body.manager-mode #manager-section { display:block; }
+    body.manager-mode #d-delete { display:block !important; }
+
+    #cfg-manager-btn { display:flex; align-items:center; justify-content:space-between; gap:8px; width:100%; padding:6px 10px; border-radius:6px; border:1px solid var(--border); background:var(--bg2); color:var(--text2); cursor:pointer; font-size:.76rem; font-weight:500; font-family:inherit; transition:background var(--tr); margin-top:4px; }
+    #cfg-manager-btn:hover { background:var(--bg3); }
+    #cfg-manager-btn.active { color:var(--accent); border-color:var(--accent); }
+    #cfg-manager-badge { background:var(--bg3); color:var(--text2); border-radius:99px; padding:1px 6px; font-size:.62rem; min-width:18px; text-align:center; }
+    #cfg-manager-btn.active #cfg-manager-badge { background:var(--accent); color:#fff; }
+
+    .cfg-input { width:100%; padding:7px 10px; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text); font-size:.8rem; font-family:inherit; margin-bottom:5px; }
+    .cfg-input:focus { outline:none; border-color:var(--accent); }
+
+    .cfg-menu-btn { display:flex; align-items:center; gap:6px; width:100%; padding:7px 10px; border-radius:6px; border:1px solid var(--border); background:var(--bg2); color:var(--text); cursor:pointer; font-size:.8rem; font-weight:500; font-family:inherit; transition:background var(--tr); margin-bottom:5px; }
+    .cfg-menu-btn:hover { background:var(--bg3); }
+
+    .cfg-theme-row { display:flex; gap:5px; }
+    .cfg-theme-btn { flex:1; padding:6px 8px; border-radius:6px; border:1px solid var(--border); background:var(--bg2); color:var(--text2); cursor:pointer; font-size:.76rem; font-weight:500; font-family:inherit; transition:background var(--tr),color var(--tr); }
+    .cfg-theme-btn:hover { background:var(--bg3); }
+    .cfg-theme-btn.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+    .cfg-divider { height:1px; background:var(--border); margin:8px 0; }
+
+    #cfg-log-btn { display:flex; align-items:center; justify-content:space-between; gap:8px; width:100%; padding:6px 10px; border-radius:6px; border:1px solid var(--border); background:var(--bg2); color:var(--text2); cursor:pointer; font-size:.76rem; font-weight:500; font-family:inherit; transition:background var(--tr); }
+    #cfg-log-btn:hover { background:var(--bg3); }
+    #cfg-log-btn.active { color:var(--accent); border-color:var(--accent); }
+    #cfg-log-badge { background:var(--bg3); color:var(--text2); border-radius:99px; padding:1px 6px; font-size:.62rem; min-width:18px; text-align:center; }
+    #cfg-log-btn.active #cfg-log-badge { background:var(--accent); color:#fff; }
+
+    #sign-out-btn { display:block; width:100%; padding:6px 10px; border-radius:6px; border:1px solid var(--border); background:var(--bg2); color:var(--text2); cursor:pointer; font-size:.76rem; font-weight:500; text-align:left; font-family:inherit; transition:background var(--tr); }
+    #sign-out-btn:hover { background:var(--bg3); color:var(--danger); }
+
+    /* ── Debug Log ── */
+    #debug-log { display:none; position:fixed; bottom:0; right:16px; z-index:1900; width:340px; max-width:calc(100vw - 32px); background:var(--bg2); border:1px solid var(--border); border-bottom:none; border-radius:var(--radius) var(--radius) 0 0; box-shadow:var(--shadow); font-size:.72rem; font-family:'Menlo','Consolas',monospace; }
+    #debug-log-header { display:flex; align-items:center; gap:5px; padding:5px 8px; cursor:pointer; background:var(--bg3); border-radius:var(--radius) var(--radius) 0 0; user-select:none; }
+    #debug-log-title { flex:1; font-weight:600; color:var(--text); font-size:.72rem; font-family:system-ui,sans-serif; }
+    #debug-log-badge { background:var(--accent); color:#fff; border-radius:99px; padding:1px 6px; font-size:.62rem; font-family:system-ui; min-width:18px; text-align:center; }
+    #debug-log-copy,#debug-log-clear,#debug-log-toggle { background:none; border:none; cursor:pointer; color:var(--text2); font-size:.72rem; line-height:1; padding:2px 4px; font-family:system-ui,sans-serif; }
+    #debug-log-copy:hover { color:var(--accent); }
+    #debug-log-clear:hover { color:var(--danger); }
+    #debug-log-body { max-height:220px; overflow-y:auto; }
+    #debug-log.collapsed #debug-log-body { display:none; }
+    #debug-log-entries { list-style:none; margin:0; padding:2px 0; }
+    #debug-log-entries li { padding:2px 8px; border-bottom:1px solid var(--border); color:var(--text2); display:flex; gap:7px; align-items:baseline; line-height:1.5; }
+    #debug-log-entries li:last-child { border-bottom:none; }
+    .dl-time { opacity:.5; flex-shrink:0; font-size:.62rem; padding-top:1px; }
+    .dl-msg { word-break:break-all; }
+    .dl-warn { color:#d97706; }
+    .dl-error { color:var(--danger); }
+    .dl-ok { color:var(--accent); }
+
+    /* ── Onboarding styles (reused for import btn) ── */
+    .ob-btn { display:block; width:100%; padding:13px; border-radius:10px; border:none; background:var(--accent); color:#fff; cursor:pointer; font-size:.95rem; font-weight:600; font-family:inherit; transition:opacity var(--tr); margin-bottom:10px; }
+    .ob-btn:hover { opacity:.85; }
+    .ob-btn:disabled { opacity:.5; cursor:default; }
+
+    /* ── Login gate ── */
+    #login-gate { position:fixed; inset:0; z-index:9000; background:var(--bg); display:flex; align-items:center; justify-content:center; }
+    #login-gate-inner { text-align:center; max-width:340px; padding:40px 20px; }
+    #login-gate-title { font-size:1.8rem; font-weight:800; color:var(--accent); letter-spacing:-.5px; margin-bottom:6px; }
+    #login-gate-sub { color:var(--text2); font-size:.9rem; margin-bottom:28px; line-height:1.5; }
+    #login-email,#login-code { display:block; width:100%; padding:12px 14px; border-radius:8px; border:1px solid var(--border); background:var(--bg2); color:var(--text); font-size:.95rem; font-family:inherit; margin-bottom:10px; text-align:center; box-sizing:border-box; }
+    #login-email:focus,#login-code:focus { outline:none; border-color:var(--accent); }
+    #send-code-btn,#verify-code-btn { display:block; width:100%; padding:13px; border-radius:10px; border:none; background:var(--accent); color:#fff; cursor:pointer; font-size:.95rem; font-weight:600; font-family:inherit; transition:opacity var(--tr); }
+    #send-code-btn:hover,#verify-code-btn:hover { opacity:.85; }
+    #send-code-btn:disabled,#verify-code-btn:disabled { opacity:.5; cursor:default; }
+    #otp-sent-msg { font-size:.85rem; color:var(--text2); margin-bottom:14px; }
+    #otp-back-btn { background:none; border:none; color:var(--text2); font-size:.8rem; cursor:pointer; margin-top:10px; text-decoration:underline; font-family:inherit; }
+    #otp-error { color:var(--danger); font-size:.82rem; margin-top:8px; min-height:1.2em; }
+    #google-signin-btn { display:flex; align-items:center; justify-content:center; gap:10px; width:100%; padding:13px; border-radius:10px; border:1px solid var(--border); background:var(--bg); color:var(--text); cursor:pointer; font-size:.95rem; font-weight:600; font-family:inherit; transition:opacity var(--tr); box-sizing:border-box; margin-bottom:18px; }
+    #google-signin-btn:hover { opacity:.8; }
+    .auth-divider { display:flex; align-items:center; gap:10px; margin-bottom:18px; color:var(--text2); font-size:.8rem; }
+    .auth-divider::before,.auth-divider::after { content:''; flex:1; height:1px; background:var(--border); }
+  </style>
+
+  <script src="supabase.umd.js"></script>
+  <script type="module">
+    const { createClient } = window.supabase;
+    const sb = createClient(
+      'https://nfvxmkknkxysjksyhbek.supabase.co',
+      'sb_publishable_Lju5epgXoT5HFOoyZdjGYw_ksPesDaB'
+    );
+    window._supabase = sb;
+
+    function showApp(user) {
+      document.getElementById('login-gate').style.display = 'none';
+      const name = user.user_metadata?.full_name || user.email?.split('@')[0] || '';
+      const firstName = name.split(' ')[0] || name;
+      const label = document.getElementById('user-name-label');
+      if (label) label.textContent = firstName;
+      const menuName = document.getElementById('user-menu-name');
+      if (menuName) menuName.textContent = name;
+      const menuEmail = document.getElementById('user-menu-email');
+      if (menuEmail) menuEmail.textContent = user.email || '';
+    }
+
+    function showLoginState() {
+      _booted = false;
+      document.getElementById('login-gate').style.display = 'flex';
+      document.getElementById('login-btn-wrap').style.display = '';
+      document.getElementById('unauthorized-wrap').style.display = 'none';
+      document.getElementById('otp-email-step').style.display = '';
+      document.getElementById('otp-code-step').style.display = 'none';
+      document.getElementById('otp-error').textContent = '';
+      document.getElementById('send-code-btn').disabled = false;
+      document.getElementById('send-code-btn').textContent = 'Send code';
+    }
+
+    function showServiceErrorState() {
+      document.getElementById('login-gate').style.display = 'flex';
+      document.getElementById('login-btn-wrap').style.display = 'none';
+      document.getElementById('unauthorized-wrap').style.display = 'none';
+      document.getElementById('service-error-wrap').style.display = '';
+    }
+
+    function showUnauthorizedState() {
+      document.getElementById('login-gate').style.display = 'flex';
+      document.getElementById('login-btn-wrap').style.display = 'none';
+      document.getElementById('unauthorized-wrap').style.display = '';
+    }
+
+    let _booted = false;
+    function bootOnce(user) {
+      if (_booted) return;
+      _booted = true;
+      showApp(user);
+      if (typeof window._bootApp === 'function') window._bootApp();
+    }
+
+    async function checkApprovalFull(accessToken) {
+      try {
+        const r = await fetch('/api/profile', { headers: { 'Authorization': `Bearer ${accessToken}` } });
+        if (!r.ok) return { approved: false, transient_error: true };
+        return await r.json();
+      } catch { return { approved: false, transient_error: true }; }
+    }
+
+    document.getElementById('google-signin-btn').addEventListener('click', async () => {
+      await sb.auth.signInWithOAuth({
+        provider: 'google',
+        options: { redirectTo: window.location.origin + window.location.pathname }
+      });
+    });
+
+    let otpEmail = '';
+
+    function otpError(msg) { document.getElementById('otp-error').textContent = msg; }
+
+    document.getElementById('send-code-btn').addEventListener('click', async () => {
+      const email = document.getElementById('login-email').value.trim();
+      if (!email) return;
+      const btn = document.getElementById('send-code-btn');
+      btn.disabled = true; btn.textContent = 'Checking…'; otpError('');
+
+      let status = 'unknown';
+      try {
+        const r = await fetch('/api/profile?action=check-email&email=' + encodeURIComponent(email));
+        if (r.ok) { const d = await r.json(); status = d.status; }
+      } catch {}
+
+      if (status === 'unknown') {
+        otpError('Email not found. This app is by invitation only.');
+        btn.disabled = false; btn.textContent = 'Send code'; return;
+      }
+
+      btn.textContent = 'Sending…';
+      const { error } = await sb.auth.signInWithOtp({ email, options: { shouldCreateUser: status === 'invited' } });
+      if (error) {
+        otpError(error.message || 'Could not send code. Try again.');
+        btn.disabled = false; btn.textContent = 'Send code'; return;
+      }
+      otpEmail = email;
+      document.getElementById('otp-email-step').style.display = 'none';
+      document.getElementById('otp-code-step').style.display = '';
+      document.getElementById('login-code').focus();
+    });
+
+    document.getElementById('login-email').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('send-code-btn').click(); });
+
+    document.getElementById('verify-code-btn').addEventListener('click', async () => {
+      const code = document.getElementById('login-code').value.trim();
+      if (!code) return;
+      const btn = document.getElementById('verify-code-btn');
+      btn.disabled = true; btn.textContent = 'Verifying…'; otpError('');
+      const { error } = await sb.auth.verifyOtp({ email: otpEmail, token: code, type: 'email' });
+      if (error) { otpError('Invalid or expired code. Try again.'); btn.disabled = false; btn.textContent = 'Sign in'; }
+    });
+
+    document.getElementById('login-code').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('verify-code-btn').click(); });
+    document.getElementById('otp-back-btn').addEventListener('click', () => {
+      document.getElementById('otp-code-step').style.display = 'none';
+      document.getElementById('otp-email-step').style.display = '';
+      document.getElementById('login-code').value = ''; otpError('');
+    });
+
+    document.getElementById('sign-out-btn').addEventListener('click', async () => { await sb.auth.signOut(); showLoginState(); });
+    document.getElementById('unauthorized-signout').addEventListener('click', async () => { await sb.auth.signOut(); showLoginState(); });
+
+    sb.auth.onAuthStateChange(async (event, session) => {
+      console.log('[tl:auth] event:', event, 'user:', session?.user?.email ?? null);
+      if (!session?.user) { showLoginState(); return; }
+      const profile = await checkApprovalFull(session.access_token);
+      if (profile.approved) { bootOnce(session.user); }
+      else if (profile.transient_error) { showServiceErrorState(); }
+      else { showUnauthorizedState(); }
+    });
+  </script>
+</head>
+
+<body>
+
+  <!-- ── Login gate ── -->
+  <div id="login-gate">
+    <div id="login-gate-inner">
+      <div id="login-gate-title">TrackLog</div>
+      <div id="login-gate-sub">Private app — sign in to continue.</div>
+      <div id="login-btn-wrap">
+        <button id="google-signin-btn">
+          <svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
+            <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" fill="#4285F4"/>
+            <path d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z" fill="#34A853"/>
+            <path d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z" fill="#FBBC05"/>
+            <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 6.29C4.672 4.163 6.656 3.58 9 3.58z" fill="#EA4335"/>
+          </svg>
+          Continue with Google
+        </button>
+        <div class="auth-divider">or</div>
+        <div id="otp-email-step">
+          <input type="email" id="login-email" placeholder="Email address" autocomplete="email">
+          <button id="send-code-btn">Send code</button>
+        </div>
+        <div id="otp-code-step" style="display:none">
+          <div id="otp-sent-msg">Code sent — check your email</div>
+          <input type="text" id="login-code" placeholder="8-digit code" maxlength="8" inputmode="numeric" autocomplete="one-time-code">
+          <button id="verify-code-btn">Sign in</button>
+          <br><button id="otp-back-btn">Use different email</button>
+        </div>
+        <div id="otp-error"></div>
+      </div>
+      <div id="unauthorized-wrap" style="display:none;text-align:center;padding:8px 0">
+        <div style="font-size:2rem;margin-bottom:12px">🔒</div>
+        <div style="font-size:1rem;font-weight:600;margin-bottom:8px;color:var(--text)">Not authorized</div>
+        <div style="color:var(--text2);font-size:.85rem;margin-bottom:20px;line-height:1.5">This email isn't authorized for TrackLog.<br>Contact the admin if you think this is an error.</div>
+        <button id="unauthorized-signout" style="background:none;border:1px solid var(--border);border-radius:8px;padding:7px 16px;color:var(--text2);cursor:pointer;font-size:.82rem;font-family:inherit">Sign out</button>
+      </div>
+      <div id="service-error-wrap" style="display:none;text-align:center;padding:8px 0">
+        <div style="font-size:1.1rem;font-weight:600;margin-bottom:8px">Temporarily unavailable</div>
+        <div style="color:var(--text2);font-size:.9rem;margin-bottom:16px">Could not verify your account. Please try again.</div>
+        <button onclick="location.reload()" style="padding:8px 20px;background:var(--accent);color:#fff;border:none;border-radius:8px;cursor:pointer;font-family:inherit;font-size:.9rem">Refresh</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Nav ── -->
+  <nav id="nav">
+    <span class="logo">TrackLog <span class="ver" id="app-version"></span></span>
+    <button class="nav-btn" id="user-btn" title="Account &amp; settings">
+      <span id="user-name-label"></span>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+        <circle cx="12" cy="8" r="4"/>
+        <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
+      </svg>
+    </button>
+  </nav>
+
+  <!-- ── User menu ── -->
+  <div id="config-card">
+    <div id="user-menu-header">
+      <div id="user-menu-name"></div>
+      <div id="user-menu-email"></div>
+    </div>
+    <div class="cfg-divider"></div>
+    <div class="cfg-theme-row">
+      <button class="cfg-theme-btn" data-t="light">☀ Light</button>
+      <button class="cfg-theme-btn" data-t="dark">🌙 Dark</button>
+    </div>
+    <div class="cfg-divider"></div>
+
+    <!-- Import section -->
+    <button id="import-btn" class="cfg-menu-btn" style="background:var(--accent);color:#fff;border-color:var(--accent);font-weight:600">
+      ↑ Import activities
+    </button>
+    <div style="font-size:.72rem;color:var(--text2);margin-bottom:4px;padding:0 2px">Pick a folder of GPX files — Strava or Apple Health export</div>
+
+    <!-- Manager mode -->
+    <div class="cfg-divider"></div>
+    <button id="cfg-manager-btn">
+      Manager mode
+      <span id="cfg-manager-badge">off</span>
+    </button>
+    <div id="manager-section">
+      <div class="cfg-divider"></div>
+      <div style="display:flex;align-items:center;gap:6px;font-size:.76rem;color:var(--text2)">
+        <span style="flex:1">Max tracks</span>
+        <input type="number" id="max-tracks-input" min="1" max="99999" placeholder="all" title="Cap tracks loaded; reload to apply" style="width:64px">
+        <button id="max-tracks-apply" style="padding:3px 8px;font-size:.72rem">Apply</button>
+      </div>
+      <div class="cfg-divider"></div>
+      <button id="wipe-btn" class="cfg-menu-btn" style="color:var(--danger);border-color:var(--danger);opacity:.7">Wipe all activities</button>
+    </div>
+
+    <!-- Admin section -->
+    <div id="admin-section" style="display:none">
+      <div class="cfg-divider"></div>
+      <button id="admin-users-toggle" style="display:flex;align-items:center;justify-content:space-between;width:100%;background:none;border:none;padding:4px 0 6px;cursor:pointer;font-size:.72rem;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;font-family:inherit">
+        <span>Users &amp; Invites</span>
+        <span id="admin-users-chevron" style="font-style:normal;transition:transform .2s">▸</span>
+      </button>
+      <div id="admin-panel-body" style="display:none">
+        <div style="margin-bottom:8px">
+          <div style="font-size:.7rem;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px">Send Invite</div>
+          <input type="email" id="invite-email-input" class="cfg-input" placeholder="user@example.com">
+          <button id="invite-send-btn" style="font-size:.78rem;padding:5px 10px">Send invite email</button>
+          <div id="invite-send-status" style="font-size:.75rem;color:var(--text2);margin-top:4px"></div>
+        </div>
+        <div id="admin-invite-list" style="margin-bottom:8px"></div>
+        <div style="font-size:.7rem;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px">Users</div>
+        <div id="admin-user-list" style="max-height:200px;overflow-y:auto"></div>
+      </div>
+    </div>
+
+    <div class="cfg-divider"></div>
+    <button id="cfg-log-btn">
+      Debug Log
+      <span id="cfg-log-badge">0</span>
+    </button>
+    <div class="cfg-divider"></div>
+    <button id="sign-out-btn">Sign out</button>
+  </div>
+
+  <!-- ── Map ── -->
+  <div id="map"></div>
+
+  <!-- ── Basemap switcher ── -->
+  <div id="basemap-switcher">
+    <button class="bm-btn active" data-bm="streets">Streets</button>
+    <button class="bm-btn" data-bm="topo">Topo</button>
+    <button class="bm-btn" data-bm="satellite">Satellite</button>
+  </div>
+
+  <!-- ── Map controls ── -->
+  <div id="map-controls">
+    <button class="mc-btn" id="ctrl-in" title="Zoom in">+</button>
+    <button class="mc-btn" id="ctrl-out" title="Zoom out">−</button>
+    <button class="mc-btn" id="ctrl-locate" title="My location">◎</button>
+    <button class="mc-btn" id="ctrl-fit" title="Fit loaded tracks">⤢</button>
+    <button class="mc-btn" id="ctrl-fit-heat" title="Fit full heatmap extent">⊕</button>
+    <button class="mc-btn active" id="ctrl-heat" title="Hide heatmap" style="font-size:.65rem;font-weight:800;letter-spacing:-.5px">HM</button>
+  </div>
+
+  <div id="heat-popup">
+    <span class="heat-lbl">Less</span>
+    <input type="range" id="heat-popup-intensity" min="1" max="10" step="1" value="5">
+    <span class="heat-lbl">More</span>
+  </div>
+
+  <button id="panel-toggle" title="Toggle panel">‹</button>
+
+  <!-- ── Panel ── -->
+  <div id="panel">
+    <div id="drag-handle"><span></span></div>
+    <div id="panel-tabs">
+      <button class="tab-btn active" data-tab="filters">Filters</button>
+      <button class="tab-btn" data-tab="tracks">Tracks</button>
+      <button class="tab-btn" data-tab="detail">Detail</button>
+    </div>
+    <div id="type-strip">
+      <div id="type-toggles"><span style="color:var(--text2);font-size:.8rem">Loading…</span></div>
+    </div>
+    <div id="panel-body">
+      <div class="tab-pane active" id="tab-filters">
+        <div class="filter-section">
+          <span class="filter-label">Date Range</span>
+          <div class="date-row">
+            <input type="date" id="date-from">
+            <span class="date-sep">→</span>
+            <input type="date" id="date-to">
+          </div>
+          <button class="filter-btn" id="apply-btn">Apply Filter</button>
+          <button class="filter-btn secondary" id="loadvisible-btn">Load tracks in view</button>
+          <button class="filter-btn secondary" id="loadall-btn">Load all tracks (…)</button>
+        </div>
+        <div class="filter-section">
+          <span class="filter-label">Heatmap Intensity</span>
+          <div class="heat-intensity-row">
+            <span class="heat-lbl">Less</span>
+            <input type="range" id="heat-intensity" min="1" max="10" step="1" value="5">
+            <span class="heat-lbl">More</span>
+          </div>
+        </div>
+      </div>
+      <div class="tab-pane" id="tab-tracks">
+        <div id="sort-bar">
+          <span class="sort-lbl">Sort</span>
+          <button class="sort-btn active" data-sort="date">Date ↓</button>
+          <button class="sort-btn" data-sort="dist">Distance</button>
+          <button class="sort-btn" data-sort="name">Name</button>
+        </div>
+        <div id="track-list">
+          <div id="no-tracks">No tracks yet.<br><br>
+            <button onclick="document.getElementById('user-btn').click()" style="background:var(--accent);color:#fff;border:none;border-radius:8px;padding:7px 14px;cursor:pointer;font-size:.8rem;font-family:inherit">Import activities →</button>
+          </div>
+        </div>
+      </div>
+      <div class="tab-pane" id="tab-detail">
+        <div id="track-detail" style="display:none">
+          <div class="detail-header">
+            <div class="detail-title" id="d-name">—</div>
+            <button class="detail-close" id="d-close">✕</button>
+          </div>
+          <div id="elev-wrap">
+            <canvas id="elev-canvas"></canvas>
+            <div id="elev-label">Elevation Profile</div>
+          </div>
+          <div class="stat-grid">
+            <div class="stat-box"><div class="stat-val" id="d-dist">—</div><div class="stat-lbl">Distance</div></div>
+            <div class="stat-box"><div class="stat-val" id="d-type">—</div><div class="stat-lbl">Type</div></div>
+            <div class="stat-box"><div class="stat-val" id="d-time">—</div><div class="stat-lbl">Total Time</div></div>
+            <div class="stat-box"><div class="stat-val" id="d-movt">—</div><div class="stat-lbl">Moving Time</div></div>
+            <div class="stat-box"><div class="stat-val" id="d-gain">—</div><div class="stat-lbl">Elev Gain</div></div>
+            <div class="stat-box"><div class="stat-val" id="d-loss">—</div><div class="stat-lbl">Elev Loss</div></div>
+            <div class="stat-box"><div class="stat-val" id="d-avgspd">—</div><div class="stat-lbl">Avg Speed</div></div>
+            <div class="stat-box"><div class="stat-val" id="d-maxspd">—</div><div class="stat-lbl">Max Speed</div></div>
+            <div class="stat-box full"><div class="stat-val" id="d-start" style="font-size:.85rem">—</div><div class="stat-lbl">Start Time</div></div>
+          </div>
+          <button class="detail-delete" id="d-delete">Delete Track</button>
+        </div>
+        <div id="no-detail">Click a track on the map<br>or in the Tracks tab to see details.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Import modal ── -->
+  <div id="import-modal" style="display:none">
+    <div id="import-modal-card">
+      <div id="import-modal-spinner" class="sync-modal-spinner"></div>
+      <div id="import-modal-title" class="sync-modal-title">Importing…</div>
+      <div id="import-modal-status" class="sync-modal-status">Starting…</div>
+      <div id="import-modal-actions" style="display:none">
+        <button id="import-modal-done" class="ob-btn">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Debug Log ── -->
+  <div id="debug-log" class="collapsed">
+    <div id="debug-log-header">
+      <span id="debug-log-title">Log</span>
+      <span id="debug-log-badge">0</span>
+      <button id="debug-log-copy" title="Copy log">copy</button>
+      <button id="debug-log-clear" title="Clear log">✕</button>
+      <button id="debug-log-toggle" title="Expand/collapse">▲</button>
+    </div>
+    <div id="debug-log-body"><ul id="debug-log-entries"></ul></div>
+  </div>
+
+  <div id="toast"></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js" integrity="sha384-mFKkGiGvT5vo1fEyGCD3hshDdKmW3wzXW/x+fWriYJArD0R3gawT6lMvLboM22c0" crossorigin="anonymous"></script>
+  <script>
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+  </script>
+  <script>
+    'use strict';
+
+    async function apiFetch(url, opts = {}) {
+      const sb = window._supabase;
+      if (!sb) throw new Error('Supabase not ready');
+      const { data: { session } } = await sb.auth.getSession();
+      const token = session?.access_token;
+      if (!token) throw new Error('Not authenticated');
+      opts.headers = { ...(opts.headers || {}), 'Authorization': 'Bearer ' + token };
+      return fetch(url, opts);
+    }
+
+    function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+    function cap(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
+    function fmtDist(m) { if (!m) return '—'; const mi = m/1609.344; return mi >= 0.1 ? mi.toFixed(2)+' mi' : Math.round(m*3.28084)+' ft'; }
+    function fmtTime(s) { if (!s) return '—'; const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sec=s%60; if(h) return h+'h '+m+'m'; return m+'m '+sec+'s'; }
+    function fmtSpd(mps) { return (mps && mps>0) ? (mps*2.23694).toFixed(1)+' mph' : '—'; }
+    function fmtElev(m) { return (m!=null&&m!=='') ? Math.round(m*3.28084)+' ft' : '—'; }
+    function fmtDate(iso) { if (!iso) return '—'; try { return new Date(iso).toLocaleString([],{year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}); } catch(e) { return iso; } }
+
+    let toastTimer;
+    function toast(msg, dur=3200) {
+      const el = document.getElementById('toast');
+      el.textContent = msg; el.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => el.classList.remove('show'), dur);
+      debugLog(msg);
+    }
+
+    // ── Debug Log ──
+    const dbgPanel = document.getElementById('debug-log');
+    const dbgBody = document.getElementById('debug-log-body');
+    const dbgEntries = document.getElementById('debug-log-entries');
+    const dbgBadge = document.getElementById('debug-log-badge');
+    const dbgToggle = document.getElementById('debug-log-toggle');
+    let dbgCount = 0;
+
+    function debugLog(msg, kind) {
+      dbgCount++;
+      dbgBadge.textContent = dbgCount;
+      document.getElementById('cfg-log-badge').textContent = dbgCount;
+      const t = new Date().toTimeString().slice(0,8);
+      const li = document.createElement('li');
+      li.innerHTML = `<span class="dl-time">${esc(t)}</span><span class="dl-msg${kind?' dl-'+kind:''}">${esc(msg)}</span>`;
+      dbgEntries.appendChild(li);
+      dbgBody.scrollTop = dbgBody.scrollHeight;
+    }
+
+    document.getElementById('debug-log-header').addEventListener('click', e => {
+      if (e.target.id === 'debug-log-clear') return;
+      const nowCollapsed = dbgPanel.classList.toggle('collapsed');
+      dbgToggle.textContent = nowCollapsed ? '▲' : '▼';
+    });
+    document.getElementById('debug-log-clear').addEventListener('click', () => { dbgEntries.innerHTML=''; dbgCount=0; dbgBadge.textContent='0'; });
+    document.getElementById('debug-log-copy').addEventListener('click', async function() {
+      const lines = Array.from(dbgEntries.querySelectorAll('li')).map(li =>
+        '[' + (li.querySelector('.dl-time')?.textContent||'') + '] ' + (li.querySelector('.dl-msg')?.textContent||'')
+      ).join('\n');
+      try { await navigator.clipboard.writeText(lines); this.textContent='✓'; setTimeout(()=>{this.textContent='copy';},1400); }
+      catch(e) { toast('Copy failed'); }
+    });
+
+    // ── Theme ──
+    const html = document.documentElement;
+    function storageGet(key) { try { return localStorage.getItem(key); } catch(e) { return null; } }
+    function storageSet(key, val) { try { localStorage.setItem(key, val); } catch(e) {} }
+    function applyTheme(t) {
+      html.setAttribute('data-theme', t);
+      document.querySelectorAll('.cfg-theme-btn').forEach(b => b.classList.toggle('active', b.dataset.t === t));
+    }
+    (function() {
+      const saved = storageGet('tl-theme');
+      applyTheme(saved || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
+    })();
+
+    // ── User menu ──
+    const configCard = document.getElementById('config-card');
+    const userBtn = document.getElementById('user-btn');
+    userBtn.addEventListener('click', e => { e.stopPropagation(); const showing = configCard.classList.toggle('show'); userBtn.classList.toggle('active', showing); });
+    document.addEventListener('click', e => { if (!configCard.contains(e.target) && e.target !== userBtn) { configCard.classList.remove('show'); userBtn.classList.remove('active'); } });
+    document.querySelectorAll('.cfg-theme-btn').forEach(btn => {
+      btn.addEventListener('click', () => { storageSet('tl-theme', btn.dataset.t); applyTheme(btn.dataset.t); if (selectedId && lastTrackData) drawElevation(lastTrackData.latlngs); });
+    });
+    document.getElementById('cfg-log-btn').addEventListener('click', () => {
+      const isVisible = dbgPanel.style.display === 'block';
+      if (!isVisible) { dbgPanel.style.display='block'; dbgPanel.classList.remove('collapsed'); dbgToggle.textContent='▼'; }
+      else { dbgPanel.style.display='none'; }
+      document.getElementById('cfg-log-btn').classList.toggle('active', !isVisible);
+    });
+
+    // ── Manager mode ──
+    let managerMode = false;
+    function setManagerMode(on) {
+      managerMode = on;
+      storageSet('tl-manager', on ? '1' : '');
+      document.body.classList.toggle('manager-mode', on);
+      const btn = document.getElementById('cfg-manager-btn');
+      const badge = document.getElementById('cfg-manager-badge');
+      btn.classList.toggle('active', on);
+      badge.textContent = on ? 'on' : 'off';
+    }
+    document.getElementById('cfg-manager-btn').addEventListener('click', () => setManagerMode(!managerMode));
+    if (storageGet('tl-manager') === '1') setManagerMode(true);
+
+    // ── Import modal ──
+    const importModal = document.getElementById('import-modal');
+    const importModalSpinner = document.getElementById('import-modal-spinner');
+    const importModalTitle = document.getElementById('import-modal-title');
+    const importModalStatus = document.getElementById('import-modal-status');
+    const importModalActions = document.getElementById('import-modal-actions');
+
+    function openImportModal(title, status) {
+      importModalSpinner.className = 'sync-modal-spinner';
+      importModalSpinner.textContent = '';
+      importModalTitle.textContent = title;
+      importModalStatus.textContent = status;
+      importModalActions.style.display = 'none';
+      importModal.style.display = 'flex';
+    }
+    function setImportModalStatus(title, status) { importModalTitle.textContent = title; importModalStatus.textContent = status; }
+    function finishImportModal(kind, title, status) {
+      importModalSpinner.className = 'sync-modal-spinner done' + (kind === 'error' ? ' error' : '');
+      importModalSpinner.textContent = kind === 'error' ? '✕' : '✓';
+      importModalTitle.textContent = title;
+      importModalStatus.textContent = status;
+      importModalActions.style.display = 'flex';
+    }
+    document.getElementById('import-modal-done').addEventListener('click', () => { importModal.style.display = 'none'; });
+
+    // ── Map init ──
+    const map = L.map('map', { zoomControl: false, attributionControl: true });
+    map.attributionControl.setPrefix('');
+    const basemaps = {
+      streets: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution:'© <a href="https://www.openstreetmap.org">OpenStreetMap</a>', maxZoom:19 }),
+      topo:    L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',    { attribution:'© <a href="https://opentopomap.org">OpenTopoMap</a>',           maxZoom:17 }),
+      satellite: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution:'© Esri', maxZoom:19 }),
+    };
+    basemaps.streets.addTo(map);
+    let currentBM = 'streets';
+    document.querySelectorAll('.bm-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const bm = btn.dataset.bm;
+        if (bm === currentBM) return;
+        map.removeLayer(basemaps[currentBM]); basemaps[bm].addTo(map); currentBM = bm;
+        document.querySelectorAll('.bm-btn').forEach(b => b.classList.toggle('active', b.dataset.bm === bm));
+      });
+    });
+    map.setView([39,-98], 4);
+
+    // ── Map controls ──
+    document.getElementById('ctrl-in').addEventListener('click', () => map.zoomIn());
+    document.getElementById('ctrl-out').addEventListener('click', () => map.zoomOut());
+    document.getElementById('ctrl-locate').addEventListener('click', () =>
+      navigator.geolocation?.getCurrentPosition(p => map.setView([p.coords.latitude, p.coords.longitude], 14)));
+    document.getElementById('ctrl-fit').addEventListener('click', fitAll);
+    document.getElementById('ctrl-fit-heat').addEventListener('click', () => {
+      const b = filteredHeatBounds || heatBounds;
+      if (b && b.isValid()) map.fitBounds(b, getMapFitOptions(28));
+      else toast('Heatmap not loaded yet');
+    });
+    document.getElementById('ctrl-heat').addEventListener('click', function() {
+      heatVisible = !heatVisible;
+      this.classList.toggle('active', heatVisible);
+      this.title = heatVisible ? 'Hide heatmap' : 'Show heatmap';
+      setHeatOpacity(heatVisible ? '' : '0');
+    });
+
+    function getMapFitOptions(pad, maxZoom) {
+      pad = pad || 28;
+      const extra = maxZoom ? { maxZoom } : {};
+      if (window.innerWidth < 768) return { paddingTopLeft:[pad,pad], paddingBottomRight:[pad, Math.round(window.innerHeight*.5)+pad], ...extra };
+      if (!panelCollapsed) return { paddingTopLeft:[pad,pad], paddingBottomRight:[340+pad,pad], ...extra };
+      return { padding:[pad,pad], ...extra };
+    }
+    function fitAll() {
+      const bounds = L.latLngBounds([]);
+      Object.values(trackLayers).forEach(l => { if (map.hasLayer(l)) bounds.extend(l.getBounds()); });
+      if (bounds.isValid()) map.fitBounds(bounds, getMapFitOptions(28));
+    }
+
+    // ── Panel ──
+    const panel = document.getElementById('panel');
+    const panelToggle = document.getElementById('panel-toggle');
+    let panelCollapsed = false;
+    panelToggle.addEventListener('click', () => {
+      panelCollapsed = !panelCollapsed;
+      panel.classList.toggle('collapsed', panelCollapsed);
+      document.body.classList.toggle('panel-collapsed', panelCollapsed);
+      panelToggle.textContent = panelCollapsed ? '›' : '‹';
+      setTimeout(() => map.invalidateSize(), 260);
+    });
+    function setMobilePanelCollapsed(collapsed) {
+      panel.classList.toggle('collapsed', collapsed);
+      document.body.classList.toggle('panel-collapsed', collapsed);
+      setTimeout(() => map.invalidateSize(), 260);
+    }
+    let dragY0 = null;
+    const dragHandle = document.getElementById('drag-handle');
+    dragHandle.addEventListener('touchstart', e => { dragY0 = e.touches[0].clientY; }, { passive: true });
+    dragHandle.addEventListener('touchend', e => {
+      if (dragY0 === null) return;
+      const dy = e.changedTouches[0].clientY - dragY0;
+      if (dy > 35) setMobilePanelCollapsed(true);
+      if (dy < -35) setMobilePanelCollapsed(false);
+      dragY0 = null;
+    });
+    dragHandle.addEventListener('click', () => setMobilePanelCollapsed(!panel.classList.contains('collapsed')));
+    if (window.innerWidth < 768) { panel.classList.add('collapsed'); document.body.classList.add('panel-collapsed'); }
+
+    function switchTab(name) {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+      document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.id === 'tab-' + name));
+      panel.classList.remove('collapsed');
+    }
+    document.querySelectorAll('.tab-btn').forEach(btn => btn.addEventListener('click', () => {
+      if (window.innerWidth < 768 && btn.classList.contains('active') && !panel.classList.contains('collapsed')) setMobilePanelCollapsed(true);
+      else switchTab(btn.dataset.tab);
+    }));
+
+    // ── State ──
+    const trackCache = new Map();
+    let maxTracks = parseInt(storageGet('tl-max-tracks') || '0');
+    (function() {
+      const input = document.getElementById('max-tracks-input');
+      const apply = document.getElementById('max-tracks-apply');
+      input.value = maxTracks > 0 ? maxTracks : '';
+      apply.addEventListener('click', () => {
+        maxTracks = parseInt(input.value) || 0;
+        storageSet('tl-max-tracks', maxTracks > 0 ? String(maxTracks) : '');
+        input.value = maxTracks > 0 ? maxTracks : '';
+        loadFilter(document.getElementById('date-from').value, document.getElementById('date-to').value);
+        document.getElementById('config-card').classList.remove('show');
+      });
+    })();
+
+    let allTracks = [], trackLayers = {}, heatLayer = null, typeMeta = {};
+    let activeTypes = new Set(), totalCount = 0, selectedId = null, startMarker = null;
+    let lastTrackData = null, sortKey = 'date', sortDir = 'desc';
+    let heatVisible = true, heatBounds = null, filteredHeatBounds = null;
+    let heatIntensity = parseInt(storageGet('tl-heat-intensity') || '5');
+    let firstLoad = true;
+
+    // ── Heatmap ──
+    function updateHeatRadius() {
+      if (!heatLayer) return;
+      const z = map.getZoom();
+      let r, b;
+      if (z <= 5) { r=8; b=6; } else if (z <= 8) { r=12; b=9; } else if (z <= 11) { r=16; b=12; } else if (z <= 13) { r=20; b=15; } else { r=24; b=18; }
+      heatLayer.setOptions({ radius:r, blur:b });
+    }
+    function setHeatOpacity(v) { if (!heatLayer) return; try { heatLayer._canvas.style.opacity = v; } catch(e) {} }
+    function updateHeatIntensity(v) {
+      heatIntensity = v; storageSet('tl-heat-intensity', v);
+      if (heatLayer) heatLayer.setOptions({ max: Math.pow(10, (5-v)/4) });
+      document.getElementById('heat-intensity').value = v;
+      document.getElementById('heat-popup-intensity').value = v;
+    }
+    map.on('zoomend', updateHeatRadius);
+    (function() {
+      const slider = document.getElementById('heat-intensity');
+      const popup = document.getElementById('heat-popup-intensity');
+      slider.value = heatIntensity; popup.value = heatIntensity;
+      slider.addEventListener('input', function() { updateHeatIntensity(parseInt(this.value)); });
+      popup.addEventListener('input', function() { updateHeatIntensity(parseInt(this.value)); });
+    })();
+    (function() {
+      const heatBtn = document.getElementById('ctrl-heat');
+      const popup = document.getElementById('heat-popup');
+      let pressTimer = null;
+      heatBtn.addEventListener('touchstart', e => { e.preventDefault(); pressTimer = setTimeout(() => { pressTimer=null; popup.classList.toggle('show'); }, 450); }, { passive:false });
+      heatBtn.addEventListener('touchend', () => {
+        if (pressTimer !== null) { clearTimeout(pressTimer); pressTimer=null; heatVisible=!heatVisible; heatBtn.classList.toggle('active',heatVisible); heatBtn.title=heatVisible?'Hide heatmap':'Show heatmap'; setHeatOpacity(heatVisible?'':'0'); }
+      });
+      heatBtn.addEventListener('touchmove', () => { clearTimeout(pressTimer); pressTimer=null; }, { passive:true });
+      heatBtn.addEventListener('contextmenu', e => e.preventDefault());
+      document.addEventListener('touchstart', e => { if (popup.classList.contains('show') && !popup.contains(e.target) && e.target !== heatBtn) popup.classList.remove('show'); }, { passive:true });
+    })();
+
+    // ── Types ──
+    async function loadTypes() {
+      try {
+        const r = await apiFetch('/api/types');
+        if (!r.ok) throw new Error();
+        const sha = r.headers.get('X-App-Version');
+        if (sha) document.getElementById('app-version').textContent = sha;
+        typeMeta = await r.json();
+      } catch(e) { typeMeta = {}; }
+      buildTypeToggles();
+    }
+    function buildTypeToggles() {
+      const wrap = document.getElementById('type-toggles');
+      wrap.innerHTML = '';
+      const types = Object.keys(typeMeta);
+      if (!types.length) { wrap.innerHTML = '<span style="color:var(--text2);font-size:.8rem">No tracks yet.</span>'; return; }
+      types.forEach(t => {
+        if (!activeTypes.has(t)) activeTypes.add(t);
+        const color = typeMeta[t].color;
+        const btn = document.createElement('button');
+        btn.className = 'type-toggle on'; btn.textContent = cap(t); btn.dataset.type = t;
+        btn.style.borderColor = color; btn.style.background = color; btn.style.color = '#fff';
+        btn.addEventListener('click', () => {
+          if (activeTypes.has(t)) { activeTypes.delete(t); btn.classList.remove('on'); btn.style.background='transparent'; btn.style.color=color; }
+          else { activeTypes.add(t); btn.classList.add('on'); btn.style.background=color; btn.style.color='#fff'; }
+          applyVisibility(); renderTrackList();
+        });
+        wrap.appendChild(btn);
+      });
+    }
+
+    // ── Sort ──
+    document.querySelectorAll('.sort-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const key = btn.dataset.sort;
+        if (sortKey === key) { sortDir = sortDir === 'desc' ? 'asc' : 'desc'; }
+        else { sortKey = key; sortDir = key === 'name' ? 'asc' : 'desc'; }
+        document.querySelectorAll('.sort-btn').forEach(b => {
+          const active = b.dataset.sort === sortKey;
+          b.classList.toggle('active', active);
+          b.textContent = active ? { date:'Date', dist:'Distance', name:'Name' }[sortKey] + (sortDir==='desc'?' ↓':' ↑') : { date:'Date', dist:'Distance', name:'Name' }[b.dataset.sort];
+        });
+        renderTrackList();
+      });
+    });
+
+    // ── Load tracks ──
+    function updateLoadAllBtn() {
+      const btn = document.getElementById('loadall-btn');
+      const f = allTracks.length, t = totalCount;
+      if (activeTypes.size > 0) btn.textContent = allTracks.filter(tr=>activeTypes.has(tr.type)).length.toLocaleString()+' shown of '+(t||f).toLocaleString()+' total';
+      else if (f >= t && t > 0) btn.textContent = 'All '+t.toLocaleString()+' tracks loaded';
+      else btn.textContent = f ? f.toLocaleString()+' of '+t.toLocaleString()+' — Load all' : 'Load all tracks';
+    }
+    function defaultDates() { const to=new Date(),from=new Date(); from.setFullYear(from.getFullYear()-1); return {from:from.toISOString().slice(0,10),to:to.toISOString().slice(0,10)}; }
+    (() => { const d=defaultDates(); document.getElementById('date-from').value=d.from; document.getElementById('date-to').value=d.to; })();
+
+    async function loadTracks(from, to, all=false, bbox=null) {
+      let url = '/api/list';
+      if (bbox) url += '?bbox='+bbox;
+      else if (all) url += '?all=1';
+      else url += '?from='+from+'&to='+to;
+      if (maxTracks > 0) url += (url.includes('?')?'&':'?')+'limit='+maxTracks;
+      const r = await apiFetch(url);
+      if (!r.ok) throw new Error('/api/list '+r.status);
+      const data = await r.json();
+      allTracks = data.tracks || []; totalCount = data.total_count || allTracks.length;
+      updateLoadAllBtn(); renderTrackList();
+      return { count: allTracks.length, total: totalCount };
+    }
+    function clearPolylines() {
+      Object.values(trackLayers).forEach(l => map.removeLayer(l));
+      trackLayers = {};
+      if (startMarker) { map.removeLayer(startMarker); startMarker = null; }
+      selectedId = null; lastTrackData = null;
+    }
+    async function loadPolylines(from, to, all=false, bbox=null) {
+      let url = '/api/latlngs';
+      if (bbox) url += '?bbox='+bbox;
+      else if (all) url += '?all=1';
+      else url += '?from='+from+'&to='+to;
+      if (maxTracks > 0) url += (url.includes('?')?'&':'?')+'limit='+maxTracks;
+      const r = await apiFetch(url);
+      if (!r.ok) throw new Error('/api/latlngs '+r.status);
+      const data = await r.json();
+      renderPolylinesFromGeo(data.tracks || []);
+    }
+    async function loadFilter(from, to, all=false, bbox=null) {
+      clearPolylines(); allTracks = []; renderTrackList();
+      try {
+        await Promise.all([loadTracks(from,to,all,bbox), loadPolylines(from,to,all,bbox)]);
+        applyVisibility();
+      } catch(e) { toast('Failed to load tracks'); console.error(e); }
+    }
+    function renderPolylinesFromGeo(geoTracks) {
+      geoTracks.forEach(t => {
+        if (!t.latlngs || !t.latlngs.length) return;
+        const color = (typeMeta[t.type]||{}).color || '#888';
+        const poly = L.polyline(t.latlngs, {color,weight:3,opacity:0.72}).addTo(map);
+        poly.on('click', () => selectTrack(t.id));
+        trackLayers[t.id] = poly;
+      });
+    }
+    function applyVisibility() {
+      allTracks.forEach(t => {
+        const layer = trackLayers[t.id]; if (!layer) return;
+        const show = activeTypes.size===0 || activeTypes.has(t.type);
+        if (show && !map.hasLayer(layer)) layer.addTo(map);
+        if (!show && map.hasLayer(layer)) map.removeLayer(layer);
+      });
+      rebuildHeatFromVisible(); updateLoadAllBtn();
+    }
+    function rebuildHeatFromVisible() {
+      const pts = [];
+      Object.values(trackLayers).forEach(poly => { if (!map.hasLayer(poly)) return; poly.getLatLngs().forEach(ll => pts.push([ll.lat,ll.lng])); });
+      if (!pts.length) return;
+      const bounds = L.latLngBounds(pts);
+      if (!heatLayer) {
+        heatLayer = L.heatLayer(pts, { radius:14, blur:12, maxZoom:17, max:Math.pow(10,(5-heatIntensity)/4), minOpacity:0.28 }).addTo(map);
+        updateHeatRadius(); heatBounds = bounds;
+        if (firstLoad && bounds.isValid()) { map.fitBounds(bounds, {padding:[28,28]}); firstLoad=false; }
+        try { heatLayer._canvas.style.opacity='0'; heatLayer._canvas.style.transition='opacity 0.8s ease'; requestAnimationFrame(()=>{heatLayer._canvas.style.opacity=heatVisible?'1':'0';}); } catch(e) {}
+      } else { heatLayer.setLatLngs(pts); }
+      filteredHeatBounds = bounds;
+    }
+    function renderTrackList() {
+      const list = document.getElementById('track-list');
+      const visible = allTracks.filter(t => activeTypes.size===0 || activeTypes.has(t.type));
+      const sorted = [...visible].sort((a,b) => {
+        if (sortKey==='dist') { const d=(a.distance||0)-(b.distance||0); return sortDir==='desc'?-d:d; }
+        if (sortKey==='name') { const av=(a.name||'').toLowerCase(),bv=(b.name||'').toLowerCase(); return sortDir==='asc'?av.localeCompare(bv):bv.localeCompare(av); }
+        const av=a.start_time||'',bv=b.start_time||'';
+        return sortDir==='desc'?bv.localeCompare(av):av.localeCompare(bv);
+      });
+      if (!sorted.length) {
+        list.innerHTML = '<div id="no-tracks">No tracks yet.<br><br><button onclick="document.getElementById(\'user-btn\').click()" style="background:var(--accent);color:#fff;border:none;border-radius:8px;padding:7px 14px;cursor:pointer;font-size:.8rem;font-family:inherit">Import activities →</button></div>';
+        return;
+      }
+      list.innerHTML = sorted.map(t => {
+        const color = (typeMeta[t.type]||{}).color||'#888';
+        const date = t.start_time ? new Date(t.start_time).toLocaleDateString([],{month:'short',day:'numeric',year:'numeric'}) : '';
+        return `<div class="track-item" data-id="${esc(t.id)}" style="border-left-color:${color}">
+          <div class="ti-top"><div class="ti-name">${esc(t.name||'Activity')}</div><div class="ti-date">${esc(date)}</div></div>
+          <div class="ti-meta">${esc(cap(t.type||'activity'))} · ${esc(fmtDist(t.distance))} · ${esc(fmtTime(t.total_time))}</div>
+        </div>`;
+      }).join('');
+      list.querySelectorAll('.track-item').forEach(el => el.addEventListener('click', () => selectTrack(el.dataset.id)));
+    }
+
+    // ── Track selection ──
+    async function selectTrack(id) {
+      setHeatOpacity('0.25');
+      if (selectedId && trackLayers[selectedId]) { const prev=allTracks.find(t=>t.id===selectedId); trackLayers[selectedId].setStyle({weight:3,opacity:0.72,color:(typeMeta[prev?.type]||{}).color||'#888'}); }
+      if (startMarker) { map.removeLayer(startMarker); startMarker=null; }
+      selectedId = id; lastTrackData = null;
+      document.querySelectorAll('.track-item').forEach(el => el.classList.toggle('selected', el.dataset.id===id));
+      const poly = trackLayers[id];
+      if (poly) { poly.setStyle({weight:5,opacity:1,color:'#ffffff'}); poly.bringToFront(); map.fitBounds(poly.getBounds(), getMapFitOptions(40,14)); }
+      try {
+        let track = trackCache.get(id);
+        if (!track) { const r=await apiFetch('/api/track?id='+encodeURIComponent(id)); if(!r.ok) throw new Error(); track=await r.json(); trackCache.set(id,track); }
+        lastTrackData = track; renderDetail(track, id);
+        if (track.latlngs && track.latlngs.length) {
+          const fp=track.latlngs[0], color=(typeMeta[track.type]||{}).color||'#2563eb';
+          startMarker = L.circleMarker([fp[0],fp[1]], {radius:7,color:'#fff',weight:2,fillColor:color,fillOpacity:1}).addTo(map);
+        }
+      } catch(e) { toast('Failed to load track detail'); }
+      switchTab('detail');
+    }
+    function deselectAll() {
+      setHeatOpacity('');
+      if (selectedId && trackLayers[selectedId]) { const prev=allTracks.find(t=>t.id===selectedId); trackLayers[selectedId].setStyle({weight:3,opacity:0.72,color:(typeMeta[prev?.type]||{}).color||'#888'}); }
+      if (startMarker) { map.removeLayer(startMarker); startMarker=null; }
+      selectedId=null; lastTrackData=null;
+      document.querySelectorAll('.track-item').forEach(el => el.classList.remove('selected'));
+      document.getElementById('track-detail').style.display='none';
+      document.getElementById('no-detail').style.display='';
+    }
+    document.getElementById('d-close').addEventListener('click', deselectAll);
+
+    function renderDetail(t, id) {
+      document.getElementById('track-detail').style.display='';
+      document.getElementById('no-detail').style.display='none';
+      document.getElementById('d-name').textContent = t.name||'Activity';
+      document.getElementById('d-dist').textContent = fmtDist(t.distance);
+      document.getElementById('d-type').textContent = cap(t.type||'activity');
+      document.getElementById('d-time').textContent = fmtTime(t.total_time);
+      document.getElementById('d-movt').textContent = fmtTime(t.moving_time);
+      document.getElementById('d-gain').textContent = fmtElev(t.elev_gain);
+      document.getElementById('d-loss').textContent = fmtElev(t.elev_loss);
+      document.getElementById('d-avgspd').textContent = fmtSpd(t.avg_speed);
+      document.getElementById('d-maxspd').textContent = fmtSpd(t.max_speed);
+      document.getElementById('d-start').textContent = fmtDate(t.start_time);
+      document.getElementById('d-delete').dataset.id = id;
+      drawElevation(t.latlngs||[]);
+    }
+
+    // ── Elevation chart ──
+    function drawElevation(latlngs) {
+      const canvas = document.getElementById('elev-canvas');
+      const wrap = document.getElementById('elev-wrap');
+      canvas.width = wrap.offsetWidth||300; canvas.height = 72;
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      const pts = latlngs.filter(p => p[2]!=null);
+      if (pts.length < 2) { ctx.fillStyle=getComputedStyle(html).getPropertyValue('--text2').trim(); ctx.font='11px system-ui'; ctx.textAlign='center'; ctx.fillText('No elevation data',canvas.width/2,38); return; }
+      const elevs=pts.map(p=>p[2]), minE=Math.min(...elevs), maxE=Math.max(...elevs), range=maxE-minE||1;
+      const W=canvas.width, H=canvas.height, pad=3;
+      const dark = html.getAttribute('data-theme')==='dark';
+      const lineColor = dark ? '#60a5fa' : '#2563eb';
+      const grad = ctx.createLinearGradient(0,0,0,H);
+      grad.addColorStop(0, dark?'rgba(96,165,250,.45)':'rgba(37,99,235,.35)');
+      grad.addColorStop(1, dark?'rgba(96,165,250,.03)':'rgba(37,99,235,.03)');
+      function ptX(i) { return pad+(i/(pts.length-1))*(W-pad*2); }
+      function ptY(i) { return H-pad-((pts[i][2]-minE)/range)*(H-pad*2); }
+      ctx.beginPath(); pts.forEach((_,i)=>i===0?ctx.moveTo(ptX(i),ptY(i)):ctx.lineTo(ptX(i),ptY(i)));
+      ctx.lineTo(ptX(pts.length-1),H-pad); ctx.lineTo(ptX(0),H-pad); ctx.closePath();
+      ctx.fillStyle=grad; ctx.fill();
+      ctx.beginPath(); pts.forEach((_,i)=>i===0?ctx.moveTo(ptX(i),ptY(i)):ctx.lineTo(ptX(i),ptY(i)));
+      ctx.strokeStyle=lineColor; ctx.lineWidth=1.8; ctx.stroke();
+    }
+
+    // ── Delete ──
+    document.getElementById('d-delete').addEventListener('click', async function() {
+      const id = this.dataset.id; if (!id) return;
+      if (!confirm('Delete this track? This cannot be undone.')) return;
+      try {
+        const r = await apiFetch('/api/delete?id='+encodeURIComponent(id), {method:'POST'});
+        if (!r.ok) throw new Error();
+        const res = await r.json(); if (!res.ok) throw new Error(res.error||'delete failed');
+        if (trackLayers[id]) { map.removeLayer(trackLayers[id]); delete trackLayers[id]; }
+        trackCache.delete(id); allTracks=allTracks.filter(t=>t.id!==id);
+        deselectAll(); renderTrackList(); await loadTypes(); toast('Track deleted');
+      } catch(e) { toast('Delete failed'); }
+    });
+
+    // ── Filters ──
+    document.getElementById('apply-btn').addEventListener('click', () => {
+      const from=document.getElementById('date-from').value, to=document.getElementById('date-to').value;
+      if (!from||!to) { toast('Select a date range first'); return; }
+      loadFilter(from,to);
+    });
+    document.getElementById('loadvisible-btn').addEventListener('click', () => {
+      const b=map.getBounds();
+      loadFilter(null,null,false,[b.getSouth().toFixed(4),b.getWest().toFixed(4),b.getNorth().toFixed(4),b.getEast().toFixed(4)].join(','));
+    });
+    document.getElementById('loadall-btn').addEventListener('click', async () => {
+      if (allTracks.length >= totalCount && totalCount > 0) return;
+      await loadFilter(null,null,true);
+    });
+
+    // ── Type normalization ──
+    const TYPE_MAP = {
+      run:'run', running:'run', trailrun:'run', trailrunning:'run',
+      hike:'hike', hiking:'hike',
+      walk:'walk', walking:'walk',
+      ride:'ride', cycling:'ride', bike:'ride', biking:'ride', bicycle:'ride',
+      virtualride:'ride', gravelride:'ride', mountainbikeride:'ride',
+      ebikeride:'ride', emountainbikeride:'ride', mountainbike:'ride',
+      swim:'swim', swimming:'swim',
+      ski:'ski', alpineski:'ski', backcountryski:'ski', nordicski:'ski',
+      rollerski:'ski', snowboard:'ski', snowshoe:'ski', snowshoeing:'ski',
+      skate:'skate', iceskate:'skate', inlineskate:'skate',
+      kayak:'kayak', kayaking:'kayak', canoeing:'kayak', rowing:'kayak',
+      paddling:'kayak', standuppaddling:'kayak',
+      surf:'surf', surfing:'surf', windsurf:'surf', kitesurf:'surf',
+      workout:'workout', weighttraining:'workout', yoga:'workout',
+      crossfit:'workout', elliptical:'workout', stairstepper:'workout',
+      fitness:'workout', gym:'workout',
+      soccer:'sport', tennis:'sport', golf:'sport',
+    };
+    function mapType(raw) {
+      if (!raw) return null;
+      const key = String(raw).toLowerCase().replace(/[\s_-]+/g,'');
+      return TYPE_MAP[key] || String(raw).toLowerCase();
+    }
+    function inferType(distM, durSec, elevGainM) {
+      if (!distM || distM < 100 || !durSec || durSec < 60) return 'activity';
+      const kph = (distM/1000)/(durSec/3600);
+      if (kph < 1.5) return 'activity';
+      if (kph < 4) return (elevGainM||0) > 150 ? 'hike' : 'walk';
+      if (kph < 13) return 'run';
+      return 'ride';
+    }
+
+    // ── GPX pipeline helpers ──
+    function decimate(pts, max) {
+      if (pts.length <= max) return pts;
+      const result = []; const step = (pts.length-1)/(max-1);
+      for (let i=0; i<max; i++) result.push(pts[Math.round(i*step)]);
+      return result;
+    }
+    function haversineM(lat1,lon1,lat2,lon2) {
+      const R=6371000, dLat=(lat2-lat1)*Math.PI/180, dLon=(lon2-lon1)*Math.PI/180;
+      const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
+      return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+    }
+    function makeSourceId(filename, startTime, firstLat, firstLon) {
+      const base = filename.replace(/\.(gpx|tcx)(\.gz)?$/i,'');
+      if (/^\d{7,}$/.test(base)) return 'strava_'+base;
+      if (/^route_/i.test(base)) return 'ah_'+base.toLowerCase();
+      const t = startTime ? startTime.replace(/[^0-9T]/g,'').slice(0,15) : '';
+      const la = firstLat!=null ? Math.round(firstLat*1000) : '';
+      const lo = firstLon!=null ? Math.round(firstLon*1000) : '';
+      return `gpx_${t}_${la}_${lo}`;
+    }
+    function parseGpx(xmlText, filename) {
+      let doc;
+      try { doc = new DOMParser().parseFromString(xmlText,'application/xml'); } catch(e) { return null; }
+      const trkpts = doc.querySelectorAll('trkpt');
+      if (!trkpts.length) return null;
+      const pts = []; let firstTime=null, lastTime=null;
+      trkpts.forEach(pt => {
+        const lat=parseFloat(pt.getAttribute('lat')), lon=parseFloat(pt.getAttribute('lon'));
+        const ele=parseFloat(pt.querySelector('ele')?.textContent||'');
+        const time=pt.querySelector('time')?.textContent||null;
+        if (isNaN(lat)||isNaN(lon)) return;
+        if (!firstTime && time) firstTime=time;
+        if (time) lastTime=time;
+        pts.push([lat,lon,isNaN(ele)?null:ele]);
+      });
+      if (pts.length < 2) return null;
+      const name = doc.querySelector('trk name')?.textContent?.trim() || doc.querySelector('metadata name')?.textContent?.trim() || null;
+      const startTime = firstTime || doc.querySelector('metadata time')?.textContent?.trim() || null;
+      const durSec = (firstTime&&lastTime) ? Math.round((new Date(lastTime)-new Date(firstTime))/1000) : null;
+      let distM=0;
+      for (let i=1;i<pts.length;i++) distM+=haversineM(pts[i-1][0],pts[i-1][1],pts[i][0],pts[i][1]);
+      let elevGain=0, elevLoss=0;
+      const eles=pts.map(p=>p[2]).filter(e=>e!=null);
+      for (let i=1;i<eles.length;i++) { const d=eles[i]-eles[i-1]; if(d>0) elevGain+=d; else elevLoss+=-d; }
+      const lats=pts.map(p=>p[0]), lons=pts.map(p=>p[1]);
+      const bbox={s:+Math.min(...lats).toFixed(4),w:+Math.min(...lons).toFixed(4),n:+Math.max(...lats).toFixed(4),e:+Math.max(...lons).toFixed(4)};
+      return {
+        source_id: makeSourceId(filename,startTime,pts[0][0],pts[0][1]),
+        name: name || filename.replace(/\.(gpx)(\.gz)?$/i,'').replace(/[_-]/g,' '),
+        start_time: startTime,
+        distance: +distM.toFixed(1),
+        total_time: durSec, moving_time: durSec,
+        elev_gain: eles.length>1 ? +elevGain.toFixed(1) : null,
+        elev_loss: eles.length>1 ? +elevLoss.toFixed(1) : null,
+        avg_speed: (durSec&&durSec>0) ? +(distM/durSec).toFixed(4) : null,
+        max_speed: null,
+        bbox_s:bbox.s, bbox_w:bbox.w, bbox_n:bbox.n, bbox_e:bbox.e,
+        geo_points: decimate(pts,50),
+        _d: distM, _t: durSec, _g: elevGain,
+      };
+    }
+    function parseCsvLine(line) {
+      const result=[]; let cur='', inQ=false;
+      for (const ch of line) { if(ch==='"'){inQ=!inQ;} else if(ch===','&&!inQ){result.push(cur);cur='';} else{cur+=ch;} }
+      result.push(cur); return result;
+    }
+    function parseCsv(text) {
+      const lines=text.split('\n'); if(!lines.length) return {};
+      const h=lines[0].split(',').map(x=>x.trim().replace(/^"(.+)"$/,'$1').toLowerCase());
+      const idIdx=h.indexOf('activity id'), nameIdx=h.indexOf('activity name'), typeIdx=h.indexOf('activity type'), fileIdx=h.indexOf('filename');
+      const map={};
+      for (let i=1;i<lines.length;i++) {
+        const c=parseCsvLine(lines[i]); if(!c.length) continue;
+        const fn=fileIdx>=0?c[fileIdx]?.trim():null; if(!fn) continue;
+        const base=fn.replace(/^activities\//,'').replace(/\.(gpx|tcx|fit)(\.gz)?$/i,'');
+        map[base]={ id:idIdx>=0?c[idIdx]?.trim():null, name:nameIdx>=0?c[nameIdx]?.trim()||null:null, type:typeIdx>=0?c[typeIdx]?.trim()||null:null };
+      }
+      return map;
+    }
+    async function* walkDir(dir) {
+      for await (const entry of dir.values()) {
+        if (entry.kind==='file') yield entry;
+        else if (entry.kind==='directory') yield* walkDir(entry);
+      }
+    }
+
+    // ── Import flow ──
+    let importing = false;
+    document.getElementById('import-btn').addEventListener('click', () => {
+      configCard.classList.remove('show'); userBtn.classList.remove('active');
+      runImport();
+    });
+
+    async function runImport() {
+      if (importing) return;
+      importing = true;
+      let dirHandle;
+      try { dirHandle = await window.showDirectoryPicker({mode:'read'}); }
+      catch(e) { importing=false; return; } // user cancelled
+
+      openImportModal('Scanning folder…','Looking for GPX files…');
+      try {
+        const gpxFiles=[], gzFiles=[];
+        let csvText=null;
+        for await (const handle of walkDir(dirHandle)) {
+          const n=handle.name.toLowerCase();
+          if (n==='activities.csv') { try { csvText=await(await handle.getFile()).text(); } catch(e){} }
+          else if (n.endsWith('.gpx')) gpxFiles.push(handle);
+          else if (n.endsWith('.gz')) gzFiles.push(handle);
+        }
+        const allFiles=[...gpxFiles,...gzFiles];
+        setImportModalStatus('Scanning…',`Found ${allFiles.length} activity files…`);
+        const csvMeta = csvText ? parseCsv(csvText) : {};
+        debugLog(`import: ${allFiles.length} files, CSV: ${Object.keys(csvMeta).length} rows`);
+
+        const BATCH=20;
+        let batch=[], totalUploaded=0, totalSkipped=0;
+
+        for (let i=0;i<allFiles.length;i++) {
+          const handle=allFiles[i];
+          setImportModalStatus(`Processing ${i+1} / ${allFiles.length}`, totalUploaded>0?`${totalUploaded} uploaded so far…`:'Parsing files…');
+          try {
+            const file=await handle.getFile();
+            let text;
+            const isGz=handle.name.toLowerCase().endsWith('.gz');
+            if (isGz) {
+              try {
+                const buf=await file.arrayBuffer();
+                const ds=new DecompressionStream('gzip');
+                const stream=new Blob([buf]).stream().pipeThrough(ds);
+                text=new TextDecoder().decode(await new Response(stream).arrayBuffer());
+              } catch(e) { totalSkipped++; continue; }
+              if (!text.includes('<gpx')&&!text.includes('<trkpt')) { totalSkipped++; continue; }
+            } else {
+              text=await file.text();
+            }
+            const parsed=parseGpx(text,handle.name);
+            if (!parsed) { totalSkipped++; continue; }
+
+            const base=handle.name.replace(/\.(gpx|tcx)(\.gz)?$/i,'');
+            const meta=csvMeta[base];
+            if (meta) {
+              if (meta.name) parsed.name=meta.name;
+              if (meta.type) parsed.type=mapType(meta.type);
+              if (meta.id) parsed.source_id='strava_'+meta.id;
+              parsed.source='strava';
+            } else {
+              parsed.type=inferType(parsed._d,parsed._t,parsed._g);
+              parsed.source=handle.name.toLowerCase().startsWith('route_')?'apple_health':'gpx';
+            }
+            delete parsed._d; delete parsed._t; delete parsed._g;
+            batch.push(parsed);
+
+            if (batch.length>=BATCH) {
+              setImportModalStatus('Uploading…',`${totalUploaded} uploaded, ${allFiles.length-i-1} files left`);
+              totalUploaded+=await uploadBatch([...batch]);
+              batch=[];
+            }
+          } catch(e) { totalSkipped++; debugLog(`skipped ${handle.name}: ${e.message}`,'warn'); }
+        }
+        if (batch.length) totalUploaded+=await uploadBatch(batch);
+
+        debugLog(`import done — ${totalUploaded} uploaded, ${totalSkipped} skipped`,'ok');
+        if (totalUploaded>0) {
+          finishImportModal('ok','Import complete',`${totalUploaded} ${totalUploaded===1?'activity':'activities'} imported.`+(totalSkipped>0?`\n${totalSkipped} files skipped.`:''));
+          await loadTypes(); await loadFilter(null,null,true);
+        } else {
+          finishImportModal(totalSkipped>0?'error':'ok', totalSkipped>0?'Nothing imported':'Already up to date', totalSkipped>0?'No valid GPX tracks found.':'No new activities found.');
+        }
+      } catch(e) {
+        debugLog('import failed: '+e.message,'error');
+        finishImportModal('error','Import failed',e.message||'Something went wrong.');
+      }
+      importing=false;
+    }
+
+    async function uploadBatch(activities) {
+      const r=await apiFetch('/api/import',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({activities})});
+      if (!r.ok) throw new Error('HTTP '+r.status);
+      const d=await r.json(); if(!d.ok) throw new Error(d.error||'import error');
+      return d.count||activities.length;
+    }
+
+    // ── Wipe ──
+    document.getElementById('wipe-btn').addEventListener('click', async function() {
+      if (!confirm('Delete ALL your activities? This cannot be undone.')) return;
+      this.disabled=true; this.textContent='Wiping…';
+      try {
+        const r=await apiFetch('/api/wipe',{method:'POST'});
+        if (!r.ok) throw new Error();
+        const d=await r.json(); if(!d.ok) throw new Error(d.error);
+        clearPolylines(); allTracks=[]; heatLayer=null; typeMeta={};
+        buildTypeToggles(); renderTrackList();
+        toast('All activities deleted');
+        configCard.classList.remove('show');
+      } catch(e) { toast('Wipe failed'); }
+      this.disabled=false; this.textContent='Wipe all activities';
+    });
+
+    // ── Admin ──
+    document.getElementById('admin-users-toggle').addEventListener('click', () => {
+      const body=document.getElementById('admin-panel-body');
+      const chevron=document.getElementById('admin-users-chevron');
+      const open=body.style.display==='none';
+      body.style.display=open?'':'none';
+      chevron.style.transform=open?'rotate(90deg)':'';
+      if (open) { loadAdminUsers(); loadAdminInvites(); }
+    });
+    async function loadAdminUsers() {
+      const list=document.getElementById('admin-user-list');
+      list.textContent='Loading…';
+      try {
+        const r=await apiFetch('/api/profile?action=list');
+        if (!r.ok) throw new Error();
+        const d=await r.json(); renderAdminUsers(d.users||[]);
+      } catch(e) { list.textContent='Could not load users'; }
+    }
+    function renderAdminUsers(users) {
+      const list=document.getElementById('admin-user-list');
+      list.innerHTML='';
+      if (!users.length) { list.textContent='No users yet.'; return; }
+      users.forEach(u => {
+        const row=document.createElement('div');
+        row.style.cssText='margin-bottom:8px;padding:8px;border:1px solid var(--border);border-radius:7px;font-size:.8rem';
+        const header=document.createElement('div');
+        header.style.cssText='margin-bottom:6px;line-height:1.4';
+        header.textContent=(u.display_name||'(no name)')+(u.email?' · '+u.email:'');
+        const badge=document.createElement('span');
+        badge.style.cssText='margin-left:5px;font-size:.7rem;'+(u.approved?'color:var(--accent)':'color:var(--text2)');
+        badge.textContent=u.approved?'✓ approved':'pending';
+        header.appendChild(badge); row.appendChild(header);
+
+        if (u.approved) {
+          const revokeBtn=document.createElement('button');
+          revokeBtn.className='nav-btn'; revokeBtn.style.cssText='font-size:.73rem;opacity:.6;padding:3px 8px'; revokeBtn.textContent='Revoke access';
+          revokeBtn.addEventListener('click',async()=>{
+            if(!confirm('Revoke access for '+(u.display_name||u.email)+'?')) return;
+            revokeBtn.disabled=true;
+            try { const r=await apiFetch('/api/profile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'revoke',user_id:u.user_id})}); if(!r.ok) throw new Error(); toast('Access revoked'); loadAdminUsers(); }
+            catch(e) { toast('Revoke failed'); revokeBtn.disabled=false; }
+          });
+          row.appendChild(revokeBtn);
+        } else {
+          const approveBtn=document.createElement('button');
+          approveBtn.className='nav-btn'; approveBtn.style.cssText='font-size:.73rem;padding:3px 8px'; approveBtn.textContent='Approve';
+          approveBtn.addEventListener('click',async()=>{
+            approveBtn.disabled=true;
+            try { const r=await apiFetch('/api/profile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'approve',user_id:u.user_id})}); if(!r.ok) throw new Error(); toast('User approved'); loadAdminUsers(); }
+            catch(e) { toast('Approval failed'); approveBtn.disabled=false; }
+          });
+          row.appendChild(approveBtn);
+        }
+        const delBtn=document.createElement('button');
+        delBtn.className='nav-btn'; delBtn.style.cssText='font-size:.73rem;padding:3px 8px;color:var(--danger);border-color:var(--danger);opacity:.7;margin-top:4px;margin-left:4px'; delBtn.textContent='Delete user';
+        delBtn.addEventListener('click',async()=>{
+          if(!confirm('Permanently delete '+(u.display_name||u.email)+'? This removes their account and all activities.')) return;
+          delBtn.disabled=true; delBtn.textContent='Deleting…';
+          try { const r=await apiFetch('/api/profile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'delete-user',user_id:u.user_id})}); const d=await r.json(); if(!d.ok) throw new Error(d.error); toast('User deleted'); row.remove(); }
+          catch(e) { toast('Delete failed: '+e.message); delBtn.disabled=false; delBtn.textContent='Delete user'; }
+        });
+        row.appendChild(delBtn);
+        list.appendChild(row);
+      });
+    }
+    async function loadAdminInvites() {
+      const list=document.getElementById('admin-invite-list'); if(!list) return;
+      try { const r=await apiFetch('/api/profile?action=list-invites'); if(!r.ok) throw new Error(); const d=await r.json(); renderAdminInvites(d.invites||[]); } catch(e) {}
+    }
+    function renderAdminInvites(invites) {
+      const list=document.getElementById('admin-invite-list'); if(!list) return;
+      if (!invites.length) { list.innerHTML=''; return; }
+      const pending=invites.filter(i=>!i.used).length;
+      const badge=pending?` (${pending} pending)`:'';
+      list.innerHTML=`<button id="invite-list-toggle" style="display:flex;align-items:center;justify-content:space-between;width:100%;background:none;border:none;padding:0 0 6px;cursor:pointer;font-size:.7rem;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;font-family:inherit"><span>Invites${esc(badge)}</span><span id="invite-list-chevron" style="transition:transform .2s">▸</span></button><div id="invite-list-body" style="display:none"></div>`;
+      const body=list.querySelector('#invite-list-body');
+      list.querySelector('#invite-list-toggle').addEventListener('click',()=>{ const open=body.style.display==='none'; body.style.display=open?'':'none'; list.querySelector('#invite-list-chevron').style.transform=open?'rotate(90deg)':''; });
+      invites.forEach(i=>{
+        const row=document.createElement('div');
+        row.className='invite-row'; row.style.cssText='display:flex;align-items:flex-start;gap:6px';
+        row.innerHTML=`<div style="flex:1"><span style="font-size:.78rem">${esc(i.email)}</span><br><span class="invite-used">${i.used?'✓ used by '+esc(i.used_by_name||'someone'):'pending'}</span></div>`;
+        if (!i.used) {
+          const del=document.createElement('button');
+          del.textContent='✕'; del.title='Delete invite'; del.style.cssText='background:none;border:none;color:var(--text2);cursor:pointer;font-size:.8rem;padding:2px 4px;flex-shrink:0';
+          del.addEventListener('click',async()=>{ del.disabled=true; try { const r=await apiFetch('/api/profile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'delete-invite',invite_id:i.id})}); if(!(await r.json()).ok) throw new Error(); row.remove(); } catch(e){ toast('Delete failed'); del.disabled=false; } });
+          row.appendChild(del);
+        }
+        body.appendChild(row);
+      });
+    }
+    document.getElementById('invite-send-btn').addEventListener('click', async function() {
+      const email=document.getElementById('invite-email-input').value.trim();
+      const statusEl=document.getElementById('invite-send-status');
+      if (!email) return;
+      this.disabled=true; statusEl.textContent='Sending…';
+      try {
+        const r=await apiFetch('/api/profile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'create-invite',email})});
+        const d=await r.json();
+        if (d.ok) { statusEl.textContent=`Invite sent to ${email}`; statusEl.style.color='var(--accent)'; document.getElementById('invite-email-input').value=''; loadAdminInvites(); }
+        else { statusEl.textContent=d.error||'Failed'; statusEl.style.color='var(--danger)'; }
+      } catch(e) { statusEl.textContent='Failed'; statusEl.style.color='var(--danger)'; }
+      this.disabled=false;
+      setTimeout(()=>{ statusEl.textContent=''; statusEl.style.color=''; },5000);
+    });
+
+    // ── Boot ──
+    async function boot() {
+      const t0=performance.now();
+      try {
+        const r=await apiFetch('/api/profile');
+        if (r.ok) { const pd=await r.json(); if(pd.is_admin) document.getElementById('admin-section').style.display=''; }
+      } catch(e) {}
+      await loadTypes();
+      await loadFilter(null,null,true);
+      debugLog(`boot done — ${Math.round(performance.now()-t0)}ms`,'ok');
+    }
+
+    window._bootApp = boot;
+  </script>
+</body>
+</html>
