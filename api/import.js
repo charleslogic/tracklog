@@ -51,7 +51,7 @@ module.exports = async (req, res) => {
             .from('tl_activities')
             .upsert(withId, { onConflict: 'user_id,source_id', ignoreDuplicates: false })
             .select('id');
-        if (error) { console.error('[import] upsert error:', error); return res.status(500).json({ ok: false, error: 'db_error' }); }
+        if (error) { console.error('[import] upsert error:', error.message, error.code, error.details); return res.status(500).json({ ok: false, error: error.message || 'db_error' }); }
         count += (data || []).length;
     }
 
@@ -60,7 +60,7 @@ module.exports = async (req, res) => {
             .from('tl_activities')
             .insert(withoutId)
             .select('id');
-        if (error) { console.error('[import] insert error:', error); return res.status(500).json({ ok: false, error: 'db_error' }); }
+        if (error) { console.error('[import] insert error:', error.message, error.code, error.details); return res.status(500).json({ ok: false, error: error.message || 'db_error' }); }
         count += (data || []).length;
     }
 

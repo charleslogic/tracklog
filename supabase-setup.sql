@@ -35,10 +35,10 @@ CREATE TABLE IF NOT EXISTS tl_activities (
 CREATE INDEX IF NOT EXISTS tl_act_user_time_idx ON tl_activities(user_id, start_time DESC);
 CREATE INDEX IF NOT EXISTS tl_act_user_type_idx ON tl_activities(user_id, type);
 
--- Partial unique index for dedup: only enforced when source_id is not null.
--- Activities without source_id (rare) can coexist freely.
-CREATE UNIQUE INDEX IF NOT EXISTS tl_act_source_uniq ON tl_activities(user_id, source_id)
-    WHERE source_id IS NOT NULL;
+-- Unique index for dedup. NULL source_ids are inherently distinct in PostgreSQL
+-- (NULL != NULL for uniqueness), so no partial index needed. A plain index also
+-- lets Supabase's upsert find the constraint via onConflict: 'user_id,source_id'.
+CREATE UNIQUE INDEX IF NOT EXISTS tl_act_source_uniq ON tl_activities(user_id, source_id);
 
 -- ── Profiles (approval gate) ───────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS tl_profiles (

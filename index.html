@@ -1414,8 +1414,9 @@
 
     async function uploadBatch(activities) {
       const r=await apiFetch('/api/import',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({activities})});
-      if (!r.ok) throw new Error('HTTP '+r.status);
-      const d=await r.json(); if(!d.ok) throw new Error(d.error||'import error');
+      const d=await r.json().catch(()=>({}));
+      if (!r.ok) throw new Error(d.error||'HTTP '+r.status);
+      if(!d.ok) throw new Error(d.error||'import error');
       return d.count||activities.length;
     }
 
