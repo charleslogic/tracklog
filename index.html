@@ -1292,6 +1292,10 @@
     // ── Import flow ──
     let importing = false;
     document.getElementById('import-btn').addEventListener('click', () => {
+      if (!window.showDirectoryPicker) {
+        toast('Folder picker requires Chrome or Edge', 5000);
+        return;
+      }
       configCard.classList.remove('show'); userBtn.classList.remove('active');
       runImport();
     });
@@ -1299,11 +1303,16 @@
     async function runImport() {
       if (importing) return;
       importing = true;
+      openImportModal('Select folder…', 'Choose your export folder in the dialog…');
       let dirHandle;
       try { dirHandle = await window.showDirectoryPicker({mode:'read'}); }
-      catch(e) { importing=false; return; } // user cancelled
+      catch(e) {
+        importModal.style.display = 'none';
+        importing = false;
+        return; // user cancelled
+      }
 
-      openImportModal('Scanning folder…','Looking for GPX files…');
+      setImportModalStatus('Scanning folder…', 'Looking for GPX files…');
       try {
         const gpxFiles=[], gzFiles=[];
         let csvText=null;
