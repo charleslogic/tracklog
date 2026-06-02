@@ -575,7 +575,7 @@
         </div>
         <div id="track-list">
           <div id="no-tracks">No tracks yet.<br><br>
-            <button onclick="document.getElementById('user-btn').click()" style="background:var(--accent);color:#fff;border:none;border-radius:8px;padding:7px 14px;cursor:pointer;font-size:.8rem;font-family:inherit">Import activities →</button>
+            <button onclick="event.stopPropagation();document.getElementById('user-btn').click()" style="background:var(--accent);color:#fff;border:none;border-radius:8px;padding:7px 14px;cursor:pointer;font-size:.8rem;font-family:inherit">Import activities →</button>
           </div>
         </div>
       </div>
@@ -1052,7 +1052,7 @@
         return sortDir==='desc'?bv.localeCompare(av):av.localeCompare(bv);
       });
       if (!sorted.length) {
-        list.innerHTML = '<div id="no-tracks">No tracks yet.<br><br><button onclick="document.getElementById(\'user-btn\').click()" style="background:var(--accent);color:#fff;border:none;border-radius:8px;padding:7px 14px;cursor:pointer;font-size:.8rem;font-family:inherit">Import activities →</button></div>';
+        list.innerHTML = '<div id="no-tracks">No tracks yet.<br><br><button onclick="event.stopPropagation();document.getElementById(\'user-btn\').click()" style="background:var(--accent);color:#fff;border:none;border-radius:8px;padding:7px 14px;cursor:pointer;font-size:.8rem;font-family:inherit">Import activities →</button></div>';
         return;
       }
       list.innerHTML = sorted.map(t => {
@@ -1291,13 +1291,25 @@
 
     // ── Import flow ──
     let importing = false;
+
+    const gpxFolderInput = document.createElement('input');
+    gpxFolderInput.type = 'file';
+    gpxFolderInput.setAttribute('webkitdirectory', '');
+    gpxFolderInput.multiple = true;
+    gpxFolderInput.style.display = 'none';
+    document.body.appendChild(gpxFolderInput);
+    gpxFolderInput.addEventListener('change', () => {
+      if (gpxFolderInput.files.length) runImportFromFileList(gpxFolderInput.files);
+    });
+
     document.getElementById('import-btn').addEventListener('click', () => {
       configCard.classList.remove('show'); userBtn.classList.remove('active');
-      if (!window.showDirectoryPicker) {
-        toast('Folder picker requires Chrome or Edge', 5000);
-        return;
+      if (window.showDirectoryPicker) {
+        runImport();
+      } else {
+        gpxFolderInput.value = '';
+        gpxFolderInput.click();
       }
-      runImport();
     });
 
     async function runImport() {
@@ -1306,37 +1318,49 @@
       openImportModal('Select folder…', 'Choose your export folder in the dialog…');
       let dirHandle;
       try { dirHandle = await window.showDirectoryPicker({mode:'read'}); }
-      catch(e) {
-        importModal.style.display = 'none';
-        importing = false;
-        return; // user cancelled
+      catch(e) { importModal.style.display='none'; importing=false; return; }
+      setImportModalStatus('Scanning folder…','Looking for GPX files…');
+      const gpxFiles=[], gzFiles=[];
+      let csvText=null;
+      for await (const handle of walkDir(dirHandle)) {
+        const n=handle.name.toLowerCase();
+        if (n==='activities.csv') { try { csvText=await(await handle.getFile()).text(); } catch(e){} }
+        else if (n.endsWith('.gpx')) gpxFiles.push(await handle.getFile());
+        else if (n.endsWith('.gz')) gzFiles.push(await handle.getFile());
       }
+      await processFiles([...gpxFiles,...gzFiles], csvText);
+    }
 
-      setImportModalStatus('Scanning folder…', 'Looking for GPX files…');
+    async function runImportFromFileList(fileList) {
+      if (importing) return;
+      importing = true;
+      openImportModal('Scanning folder…','Looking for GPX files…');
+      const gpxFiles=[], gzFiles=[];
+      let csvText=null;
+      for (const file of fileList) {
+        const n=file.name.toLowerCase();
+        if (n==='activities.csv') { try { csvText=await file.text(); } catch(e){} }
+        else if (n.endsWith('.gpx')) gpxFiles.push(file);
+        else if (n.endsWith('.gz')) gzFiles.push(file);
+      }
+      await processFiles([...gpxFiles,...gzFiles], csvText);
+    }
+
+    async function processFiles(allFiles, csvText) {
+      setImportModalStatus('Scanning…',`Found ${allFiles.length} activity files…`);
+      const csvMeta = csvText ? parseCsv(csvText) : {};
+      debugLog(`import: ${allFiles.length} files, CSV: ${Object.keys(csvMeta).length} rows`);
+
+      const BATCH=20;
+      let batch=[], totalUploaded=0, totalSkipped=0;
+
       try {
-        const gpxFiles=[], gzFiles=[];
-        let csvText=null;
-        for await (const handle of walkDir(dirHandle)) {
-          const n=handle.name.toLowerCase();
-          if (n==='activities.csv') { try { csvText=await(await handle.getFile()).text(); } catch(e){} }
-          else if (n.endsWith('.gpx')) gpxFiles.push(handle);
-          else if (n.endsWith('.gz')) gzFiles.push(handle);
-        }
-        const allFiles=[...gpxFiles,...gzFiles];
-        setImportModalStatus('Scanning…',`Found ${allFiles.length} activity files…`);
-        const csvMeta = csvText ? parseCsv(csvText) : {};
-        debugLog(`import: ${allFiles.length} files, CSV: ${Object.keys(csvMeta).length} rows`);
-
-        const BATCH=20;
-        let batch=[], totalUploaded=0, totalSkipped=0;
-
         for (let i=0;i<allFiles.length;i++) {
-          const handle=allFiles[i];
+          const file=allFiles[i];
           setImportModalStatus(`Processing ${i+1} / ${allFiles.length}`, totalUploaded>0?`${totalUploaded} uploaded so far…`:'Parsing files…');
           try {
-            const file=await handle.getFile();
             let text;
-            const isGz=handle.name.toLowerCase().endsWith('.gz');
+            const isGz=file.name.toLowerCase().endsWith('.gz');
             if (isGz) {
               try {
                 const buf=await file.arrayBuffer();
@@ -1348,10 +1372,10 @@
             } else {
               text=await file.text();
             }
-            const parsed=parseGpx(text,handle.name);
+            const parsed=parseGpx(text,file.name);
             if (!parsed) { totalSkipped++; continue; }
 
-            const base=handle.name.replace(/\.(gpx|tcx)(\.gz)?$/i,'');
+            const base=file.name.replace(/\.(gpx|tcx)(\.gz)?$/i,'');
             const meta=csvMeta[base];
             if (meta) {
               if (meta.name) parsed.name=meta.name;
@@ -1360,7 +1384,7 @@
               parsed.source='strava';
             } else {
               parsed.type=inferType(parsed._d,parsed._t,parsed._g);
-              parsed.source=handle.name.toLowerCase().startsWith('route_')?'apple_health':'gpx';
+              parsed.source=file.name.toLowerCase().startsWith('route_')?'apple_health':'gpx';
             }
             delete parsed._d; delete parsed._t; delete parsed._g;
             batch.push(parsed);
@@ -1370,7 +1394,7 @@
               totalUploaded+=await uploadBatch([...batch]);
               batch=[];
             }
-          } catch(e) { totalSkipped++; debugLog(`skipped ${handle.name}: ${e.message}`,'warn'); }
+          } catch(e) { totalSkipped++; debugLog(`skipped ${file.name}: ${e.message}`,'warn'); }
         }
         if (batch.length) totalUploaded+=await uploadBatch(batch);
 
