@@ -178,10 +178,29 @@ async function syncForUser(userId) {
     return { imported };
 }
 
+// Disable Vercel's automatic body parsing so we can read the raw bytes for HMAC verification.
+module.exports.config = { api: { bodyParser: false } };
+
+function readRawBody(req) {
+    return new Promise((resolve, reject) => {
+        const chunks = [];
+        req.on('data', c => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
+        req.on('end', () => resolve(Buffer.concat(chunks)));
+        req.on('error', reject);
+    });
+}
+
 // ── Main handler ──────────────────────────────────────────────────────────────
 
 module.exports = async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
+
+    // Read raw body once — needed for HMAC verification on webhook POST.
+    // Parse JSON for all other POST routes that need it.
+    const rawBodyBuf = await readRawBody(req);
+    const rawBodyStr = rawBodyBuf.toString('utf8');
+    let parsedBody = {};
+    if (rawBodyStr) { try { parsedBody = JSON.parse(rawBodyStr); } catch {} }
 
     const action = req.query.action;
 
@@ -272,18 +291,16 @@ module.exports = async (req, res) => {
 
     // POST (no action) — Dropbox webhook notification
     if (req.method === 'POST' && !action) {
-        // Verify HMAC signature
+        // Verify HMAC signature against the raw body bytes
         const sig = req.headers['x-dropbox-signature'];
-        const rawBody = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
-        const expected = hmacSha256Hex(rawBody, APP_SECRET);
+        const expected = hmacSha256Hex(rawBodyStr, APP_SECRET);
         if (!sig || sig !== expected) return res.status(403).json({ ok: false });
 
         // Respond immediately — Dropbox requires a fast 200
         res.status(200).json({ ok: true });
 
         // Sync in background for each notified account
-        const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
-        const accounts = body?.list_folder?.accounts || [];
+        const accounts = parsedBody?.list_folder?.accounts || [];
         for (const accountId of accounts) {
             const { data: rows } = await serviceClient()
                 .from('tl_dropbox_tokens')
