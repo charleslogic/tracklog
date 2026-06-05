@@ -97,6 +97,7 @@ HealthFit automatically exports new workouts as GPX files to Dropbox after each 
 - **Manual sync**: "Sync from Dropbox" button in the user menu triggers the same logic on demand.
 - **Deduplication**: Uses existing `source_id` upsert. HealthFit files named `Route_*.gpx` get `source_id = 'ah_route_...'` from filename alone, so already-imported files are skipped before downloading.
 - **Token refresh**: Short-lived Dropbox tokens are refreshed automatically before each API call if within 5 minutes of expiry.
+- **Webhook sync is synchronous**: The handler awaits all `syncForUser()` calls before responding 200. Vercel terminates functions after the response is sent, so fire-and-forget doesn't work — work must complete before responding. Dropbox allows 10s; syncing a few new files typically takes 2-3s.
 - **Dropbox folder as transit queue**: The `/Apps/HealthFitExporter/` folder is not a permanent archive — it's a delivery queue. GPX files are tiny so it won't grow large, but it can be cleared manually any time without affecting TrackLog data (the DB is the source of truth).
 - **Development mode / testers**: The app stays in Development status. Any Dropbox account can authorize (up to 500) — no need to pre-add testers. Family members just click Connect Dropbox and authorize normally.
 
