@@ -462,6 +462,13 @@
     </button>
     <div style="font-size:.72rem;color:var(--text2);margin-bottom:4px;padding:0 2px">Pick a folder of GPX files — Strava or Apple Health export</div>
 
+    <!-- Dropbox sync -->
+    <div class="cfg-divider"></div>
+    <div id="dropbox-status-line" style="font-size:.75rem;color:var(--text2);margin-bottom:5px;min-height:16px"></div>
+    <button id="dropbox-connect-btn" class="cfg-menu-btn">↓ Connect Dropbox</button>
+    <button id="dropbox-sync-btn" class="cfg-menu-btn" style="display:none">↓ Sync from Dropbox</button>
+    <button id="dropbox-disconnect-btn" style="display:none;font-size:.73rem;padding:3px 8px;opacity:.6;margin-top:2px;background:none;border:1px solid var(--border);border-radius:7px;color:var(--text2);cursor:pointer;font-family:inherit">Disconnect Dropbox</button>
+
     <!-- Manager mode -->
     <div class="cfg-divider"></div>
     <button id="cfg-manager-btn">
@@ -1547,6 +1554,87 @@
       setTimeout(()=>{ statusEl.textContent=''; statusEl.style.color=''; },5000);
     });
 
+    // ── Dropbox ──
+    let dropboxConnected = false;
+
+    async function loadDropboxStatus() {
+      try {
+        const r = await apiFetch('/api/dropbox?action=status');
+        if (!r.ok) return;
+        const d = await r.json();
+        dropboxConnected = !!d.connected;
+        const statusEl = document.getElementById('dropbox-status-line');
+        const connectBtn = document.getElementById('dropbox-connect-btn');
+        const syncBtn = document.getElementById('dropbox-sync-btn');
+        const disconnectBtn = document.getElementById('dropbox-disconnect-btn');
+        if (dropboxConnected) {
+          statusEl.textContent = 'Dropbox: Connected (' + (d.folder_path || '/Apps/HealthFitExporter') + ')';
+          statusEl.style.color = 'var(--accent)';
+          connectBtn.style.display = 'none';
+          syncBtn.style.display = '';
+          disconnectBtn.style.display = '';
+        } else {
+          statusEl.textContent = 'Dropbox: Not connected';
+          statusEl.style.color = 'var(--text2)';
+          connectBtn.style.display = '';
+          syncBtn.style.display = 'none';
+          disconnectBtn.style.display = 'none';
+        }
+      } catch(e) {}
+    }
+
+    document.getElementById('dropbox-connect-btn').addEventListener('click', async () => {
+      try {
+        const r = await apiFetch('/api/dropbox?action=auth');
+        const d = await r.json();
+        if (d.ok && d.url) window.location.href = d.url;
+        else toast('Could not start Dropbox connection');
+      } catch(e) { toast('Dropbox connection failed'); }
+    });
+
+    document.getElementById('dropbox-sync-btn').addEventListener('click', async () => {
+      configCard.classList.remove('show'); userBtn.classList.remove('active');
+      openImportModal('Syncing from Dropbox…', 'Checking for new activities…');
+      try {
+        const r = await apiFetch('/api/dropbox?action=sync', { method: 'POST' });
+        const d = await r.json();
+        if (d.ok) {
+          if (d.imported > 0) {
+            finishImportModal('ok', 'Sync complete', `${d.imported} ${d.imported === 1 ? 'activity' : 'activities'} imported from Dropbox.`);
+            await loadTypes(); await loadFilter(null, null, true);
+          } else {
+            finishImportModal('ok', 'Already up to date', 'No new activities found in Dropbox.');
+          }
+        } else {
+          finishImportModal('error', 'Sync failed', d.error || 'Something went wrong.');
+        }
+      } catch(e) {
+        finishImportModal('error', 'Sync failed', e.message || 'Network error.');
+      }
+    });
+
+    document.getElementById('dropbox-disconnect-btn').addEventListener('click', async () => {
+      if (!confirm('Disconnect Dropbox? Your imported activities will be kept.')) return;
+      try {
+        await apiFetch('/api/dropbox?action=disconnect', { method: 'POST' });
+        await loadDropboxStatus();
+        toast('Dropbox disconnected');
+      } catch(e) { toast('Disconnect failed'); }
+    });
+
+    // Handle redirect back from Dropbox OAuth
+    (function() {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('dropbox_connected')) {
+        history.replaceState(null, '', window.location.pathname);
+        // loadDropboxStatus() will be called on boot; just show a toast after boot
+        window._dropboxJustConnected = true;
+      } else if (params.get('dropbox_error')) {
+        history.replaceState(null, '', window.location.pathname);
+        window._dropboxError = params.get('dropbox_error');
+      }
+    })();
+
     // ── Boot ──
     async function boot() {
       const t0=performance.now();
@@ -1554,8 +1642,11 @@
         const r=await apiFetch('/api/profile');
         if (r.ok) { const pd=await r.json(); if(pd.is_admin) document.getElementById('admin-section').style.display=''; }
       } catch(e) {}
+      await loadDropboxStatus();
       await loadTypes();
       await loadFilter(null,null,true);
+      if (window._dropboxJustConnected) { toast('Dropbox connected!'); delete window._dropboxJustConnected; }
+      if (window._dropboxError) { toast('Dropbox error: ' + window._dropboxError); delete window._dropboxError; }
       debugLog(`boot done — ${Math.round(performance.now()-t0)}ms`,'ok');
     }
 

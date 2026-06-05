@@ -103,6 +103,23 @@ CREATE POLICY "tl_profiles: select own"
 CREATE POLICY "tl_invites: service only"
     ON tl_invites FOR ALL USING (false);
 
+-- ── Dropbox tokens (per-user OAuth tokens) ────────────────────────────────────
+CREATE TABLE IF NOT EXISTS tl_dropbox_tokens (
+    id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id             UUID        NOT NULL REFERENCES auth.users ON DELETE CASCADE,
+    dropbox_account_id  TEXT,                           -- dbid:... for webhook routing
+    access_token        TEXT,
+    refresh_token       TEXT,
+    expires_at          TIMESTAMPTZ,
+    folder_path         TEXT        NOT NULL DEFAULT '/Apps/HealthFitExporter',
+    created_at          TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(user_id)
+);
+ALTER TABLE tl_dropbox_tokens ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "tl_dropbox_tokens: select own" ON tl_dropbox_tokens;
+CREATE POLICY "tl_dropbox_tokens: select own"
+    ON tl_dropbox_tokens FOR SELECT USING (auth.uid() = user_id);
+
 -- ── Pre-existing user (manual insert) ─────────────────────────────────────────
 -- Pre-existing Supabase users won't get a tl_profiles row from the trigger
 -- (trigger only fires on new signups). Insert manually:
