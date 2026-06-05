@@ -97,6 +97,27 @@ HealthFit automatically exports new workouts as GPX files to Dropbox after each 
 - **Manual sync**: "Sync from Dropbox" button in the user menu triggers the same logic on demand.
 - **Deduplication**: Uses existing `source_id` upsert. HealthFit files named `Route_*.gpx` get `source_id = 'ah_route_...'` from filename alone, so already-imported files are skipped before downloading.
 - **Token refresh**: Short-lived Dropbox tokens are refreshed automatically before each API call if within 5 minutes of expiry.
+- **Dropbox folder as transit queue**: The `/Apps/HealthFitExporter/` folder is not a permanent archive — it's a delivery queue. GPX files are tiny so it won't grow large, but it can be cleared manually any time without affecting TrackLog data (the DB is the source of truth).
+- **Development mode / testers**: The app stays in Development status. Any Dropbox account can authorize (up to 500) — no need to pre-add testers. Family members just click Connect Dropbox and authorize normally.
+
+### Data sources and roles
+
+| Source | Role | Notes |
+|--------|------|-------|
+| Strava | Master archive | Bulk export is the recovery path; keep HealthFit → Strava sync active |
+| HealthFit → Dropbox | Live sync lane | Richer data than Strava (full HR, photos); auto-imports new activities |
+| TrackLog DB | Working copy | Derived from either source; safe to wipe and rebuild |
+
+### Wipe + reimport recovery procedure
+
+If you wipe TrackLog and reimport from a Strava bulk export:
+
+1. **Wipe TrackLog** (user menu → manager mode → Wipe all activities)
+2. **Clear the Dropbox folder** manually — delete all files from `/Apps/HealthFitExporter/` in Dropbox
+3. **Reimport Strava bulk export** via the Import button
+4. Going forward, Dropbox picks up only new activities (no duplicates)
+
+**Why step 2 is required:** Strava and HealthFit generate different `source_id` values for the same activity (`strava_12345` vs `ah_route_...`). After a wipe, the DB has no memory of the HealthFit files, so the next Dropbox sync would reimport everything as duplicates. Clearing the folder prevents this.
 
 ### Dropbox App Console setup (one-time)
 
