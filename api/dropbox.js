@@ -296,21 +296,21 @@ module.exports = async (req, res) => {
         const expected = hmacSha256Hex(rawBodyStr, APP_SECRET);
         if (!sig || sig !== expected) return res.status(403).json({ ok: false });
 
-        // Respond immediately — Dropbox requires a fast 200
-        res.status(200).json({ ok: true });
-
-        // Sync in background for each notified account
+        // Sync all notified accounts before responding — Vercel terminates the function
+        // after the response is sent, so fire-and-forget doesn't work here.
+        // Dropbox allows up to 10s; syncing 1-2 new files is well within that.
         const accounts = parsedBody?.list_folder?.accounts || [];
-        for (const accountId of accounts) {
+        await Promise.all(accounts.map(async accountId => {
             const { data: rows } = await serviceClient()
                 .from('tl_dropbox_tokens')
                 .select('user_id')
                 .eq('dropbox_account_id', accountId);
-            for (const row of (rows || [])) {
-                syncForUser(row.user_id).catch(e => console.error(`[dropbox:webhook] ${row.user_id}:`, e.message));
-            }
-        }
-        return;
+            await Promise.all((rows || []).map(row =>
+                syncForUser(row.user_id).catch(e => console.error(`[dropbox:webhook] ${row.user_id}:`, e.message))
+            ));
+        }));
+
+        return res.status(200).json({ ok: true });
     }
 
     res.setHeader('Content-Type', 'application/json');
