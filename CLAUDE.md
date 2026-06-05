@@ -1,6 +1,6 @@
 # TrackLog
 
-GPS activity viewer. Imports activities from local file exports (Strava bulk download, Apple Health, or any GPX source). No Strava API — all data comes from file imports picked by the user.
+GPS activity viewer. Imports activities from local file exports (Strava bulk download, Apple Health, or any GPX source) and automatically via Dropbox sync (HealthFit → Dropbox → TrackLog).
 
 ## Deploy Workflow
 
@@ -22,7 +22,8 @@ tracklog/
 ├── api/
 │   ├── _lib/
 │   │   ├── supabase.js     — serviceClient() and anonClient() singletons
-│   │   └── auth.js         — verifyUser() and verifyApprovedUser() (uses tl_profiles)
+│   │   ├── auth.js         — verifyUser() and verifyApprovedUser() (uses tl_profiles)
+│   │   └── gpx.js          — server-side GPX parser (fast-xml-parser); shared by dropbox.js
 │   ├── profile.js          — GET /api/profile; admin: list, approve, invite, delete
 │   ├── types.js            — GET /api/types (distinct activity types + colors)
 │   ├── list.js             — GET /api/list (scalar metadata, bbox/date filters)
@@ -30,11 +31,19 @@ tracklog/
 │   ├── track.js            — GET /api/track?id=<uuid> (full detail + elevation)
 │   ├── delete.js           — POST /api/delete?id=<uuid>
 │   ├── import.js           — POST /api/import (batch upsert of pre-processed activities)
-│   └── wipe.js             — POST /api/wipe (delete all activities for user)
-└── package.json
+│   ├── wipe.js             — POST /api/wipe (delete all activities for user)
+│   └── dropbox.js          — all Dropbox actions behind ?action= (same pattern as profile.js):
+│                              GET ?challenge=X          — webhook verification (echo challenge)
+│                              GET ?action=auth          — returns Dropbox OAuth URL
+│                              GET ?action=callback      — OAuth redirect handler (no JWT, redirects)
+│                              GET ?action=status        — connected status + folder path
+│                              POST ?action=sync         — manual sync (list folder, download, import)
+│                              POST ?action=disconnect   — remove tokens
+│                              POST (no action)          — webhook notification (HMAC-verified)
+└── package.json            — dependencies: @supabase/supabase-js, fast-xml-parser
 ```
 
-**8-function count (4 slots free):** Vercel Hobby plan allows max 12 serverless functions.
+**9-function count (3 slots free):** Vercel Hobby plan allows max 12 serverless functions.
 
 ## Supabase
 
@@ -46,8 +55,7 @@ Tables:
 - `tl_profiles` — one row per user, `approved` boolean, display_name
 - `tl_activities` — one row per activity, `geo_points JSONB` stores 50-pt `[[lat,lon,ele|null]]`
 - `tl_invites` — email-based invite list
-
-**No `tl_strava_tokens` table** — TrackLog does not use the Strava API.
+- `tl_dropbox_tokens` — per-user Dropbox OAuth tokens: `dropbox_account_id`, `access_token`, `refresh_token`, `expires_at`, `folder_path`
 
 **Pre-existing Supabase users** won't have a `tl_profiles` row. Insert manually:
 ```sql
@@ -69,8 +77,47 @@ Set in Vercel dashboard for the `tracklog` project:
 | `APP_URL` | `https://tracks.charleslogic.com` |
 | `TL_ADMIN_USER_ID` | Supabase UUID of the admin user |
 | `RESEND_API_KEY` | For invite emails |
+| `DROPBOX_APP_KEY` | Dropbox app key (from Dropbox App Console) |
+| `DROPBOX_APP_SECRET` | Dropbox app secret (from Dropbox App Console) |
 
-## Import Flow (client-side)
+## Dropbox Auto-Sync
+
+Replaces the old Strava API integration. Pipeline:
+```
+Apple Watch (WorkOutDoors) → Apple Health → HealthFit (iOS) → Dropbox /Apps/HealthFitExporter/ → TrackLog
+```
+
+HealthFit automatically exports new workouts as GPX files to Dropbox after each workout syncs to Apple Health.
+
+### How it works
+
+- **Per-user tokens**: Each user connects their own Dropbox account via OAuth. Tokens stored in `tl_dropbox_tokens`. Multiple family members each link their own Dropbox.
+- **App-level credentials**: `DROPBOX_APP_KEY` and `DROPBOX_APP_SECRET` identify the TrackLog application to Dropbox (not per-user — same for everyone, correct to keep in env vars).
+- **Webhook**: Dropbox POSTs to `/api/dropbox` when files change. The handler verifies the HMAC-SHA256 signature, looks up which TrackLog user owns the changed Dropbox account, and syncs their new GPX files.
+- **Manual sync**: "Sync from Dropbox" button in the user menu triggers the same logic on demand.
+- **Deduplication**: Uses existing `source_id` upsert. HealthFit files named `Route_*.gpx` get `source_id = 'ah_route_...'` from filename alone, so already-imported files are skipped before downloading.
+- **Token refresh**: Short-lived Dropbox tokens are refreshed automatically before each API call if within 5 minutes of expiry.
+
+### Dropbox App Console setup (one-time)
+
+1. Create app at https://www.dropbox.com/developers/apps — Scoped access
+2. **Permissions tab**: enable `files.metadata.read` AND `files.content.read`
+3. **OAuth 2 → Redirect URIs**: add `https://tracks.charleslogic.com/api/dropbox?action=callback`
+4. **Webhooks**: add `https://tracks.charleslogic.com/api/dropbox`
+5. **Settings → Testers**: add each family member's Dropbox email (required while app is in Development status — no Dropbox review needed for a private app)
+
+**Development vs Production status:** The app stays in Development mode. Add each user's Dropbox account email as a Tester in the App Console. No production review needed.
+
+### Connect flow (per user)
+
+1. User clicks "Connect Dropbox" in user menu
+2. App calls `GET /api/dropbox?action=auth` → server returns OAuth URL with signed `state` containing user ID
+3. User authorizes on Dropbox
+4. Dropbox redirects to `APP_URL/api/dropbox?action=callback`
+5. Server verifies state HMAC, exchanges code for tokens, stores in `tl_dropbox_tokens`, redirects to app
+6. App shows toast "Dropbox connected!" and status line updates
+
+## Import Flow (client-side, manual)
 
 1. User clicks "Import activities" in the user menu
 2. `showDirectoryPicker()` opens a folder picker (Chrome/Edge only)
@@ -87,18 +134,22 @@ Set in Vercel dashboard for the `tracklog` project:
 
 **No wipe on import** — every import is a safe upsert. Re-importing updates existing records (fixes names/types) and adds new ones. Duplicate detection uses `source_id` per user.
 
+## GPX Parsing (server-side)
+
+`api/_lib/gpx.js` is a port of the client-side GPX logic from `index.html`, using `fast-xml-parser` instead of `DOMParser`. Used by `api/dropbox.js` for server-side sync. The same `TYPE_MAP`, `inferType`, `decimate`, `haversineM`, and `makeSourceId` functions are used — if you change the client-side logic, mirror the change in `_lib/gpx.js`.
+
 ## Type Normalization
 
-All activity type strings are lowercased and stripped of whitespace/hyphens before lookup in `TYPE_MAP` (defined in `index.html`). Unknown types pass through as-is and get a palette color. To normalize a new variant (e.g. "cycling" → "ride"), just add it to `TYPE_MAP` and re-import — the upsert will update existing records.
+All activity type strings are lowercased and stripped of whitespace/hyphens before lookup in `TYPE_MAP` (defined in both `index.html` and `api/_lib/gpx.js`). Unknown types pass through as-is and get a palette color. To normalize a new variant (e.g. "cycling" → "ride"), add it to both TYPE_MAPs and re-import.
 
 ## Wipe
 
-"Wipe all activities" button in manager mode (user menu) calls `POST /api/wipe`. Requires confirmation. Used sparingly — day-to-day workflow is always add/update via import.
+"Wipe all activities" button in manager mode (user menu) calls `POST /api/wipe`. Requires confirmation.
 
 ## Manager Mode
 
 Toggle in browser console: `localStorage.setItem('tl-manager', '1')` then reload.
-Shows: wipe button, max tracks input, delete button on track detail.
+Shows: wipe button, max tracks input, delete button on track detail, Disconnect Dropbox button.
 
 ## Version Display
 
@@ -116,11 +167,11 @@ Identical to TrailView: OTP + Google OAuth, invite gate, auto-approve on invite.
 
 | Feature | TrailView | TrackLog |
 |---------|-----------|----------|
-| Data source | Strava API (OAuth) | Local file import (GPX) |
+| Data source | Strava API (OAuth per user) | Local GPX import + Dropbox auto-sync |
 | Table prefix | `tv_` | `tl_` |
-| Strava tokens table | Yes | No |
-| Onboarding wizard | 3-step Strava setup | None (just import) |
-| Sync button | Nav bar | None |
+| Token storage | `tv_strava_tokens` (per user) | `tl_dropbox_tokens` (per user) |
+| Onboarding wizard | 3-step Strava setup | None (connect Dropbox from user menu) |
+| Sync button | Nav bar | User menu ("Sync from Dropbox") |
 | Activity ID field | `strava_id` | `source_id` |
-| Accent color | Green `#2563eb... #2d7d3a` | Blue `#2563eb` |
+| Accent color | Violet `#7c3aed` | Blue `#2563eb` |
 | Theme storage key | `tv-theme` | `tl-theme` |
