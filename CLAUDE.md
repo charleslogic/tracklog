@@ -93,7 +93,7 @@ HealthFit automatically exports new workouts as GPX files to Dropbox after each 
 
 - **Per-user tokens**: Each user connects their own Dropbox account via OAuth. Tokens stored in `tl_dropbox_tokens`. Multiple family members each link their own Dropbox.
 - **App-level credentials**: `DROPBOX_APP_KEY` and `DROPBOX_APP_SECRET` identify the TrackLog application to Dropbox (not per-user — same for everyone, correct to keep in env vars).
-- **Webhook**: Dropbox POSTs to `/api/dropbox` when files change. The handler verifies the HMAC-SHA256 signature, looks up which TrackLog user owns the changed Dropbox account, and syncs their new GPX files.
+- **Webhook**: Dropbox POSTs to `/api/dropbox` when files change. The handler verifies the HMAC-SHA256 signature against the **raw request body bytes** (not re-serialized JSON — Vercel's body parser is disabled via `module.exports.config = { api: { bodyParser: false } }` so we read raw bytes directly). Looks up which TrackLog user owns the changed Dropbox account and syncs their new GPX files.
 - **Manual sync**: "Sync from Dropbox" button in the user menu triggers the same logic on demand.
 - **Deduplication**: Uses existing `source_id` upsert. HealthFit files named `Route_*.gpx` get `source_id = 'ah_route_...'` from filename alone, so already-imported files are skipped before downloading.
 - **Token refresh**: Short-lived Dropbox tokens are refreshed automatically before each API call if within 5 minutes of expiry.
