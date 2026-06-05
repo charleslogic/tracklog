@@ -193,7 +193,7 @@ module.exports = async (req, res) => {
 
     // GET ?action=status — connection status for current user
     if (req.method === 'GET' && action === 'status') {
-        const { user } = await verifyUser(req);
+        const user = await verifyUser(req);
         if (!user) return res.status(401).json({ ok: false, error: 'Unauthorized' });
         const { data } = await serviceClient().from('tl_dropbox_tokens').select('dropbox_account_id, folder_path, expires_at').eq('user_id', user.id).single();
         return res.json({ ok: true, connected: !!(data?.dropbox_account_id), folder_path: data?.folder_path || FOLDER });
@@ -201,7 +201,7 @@ module.exports = async (req, res) => {
 
     // GET ?action=auth — return Dropbox OAuth URL
     if (req.method === 'GET' && action === 'auth') {
-        const { user } = await verifyUser(req);
+        const user = await verifyUser(req);
         if (!user) return res.status(401).json({ ok: false, error: 'Unauthorized' });
         if (!APP_KEY) return res.status(500).json({ ok: false, error: 'Dropbox not configured' });
         const state = signState(user.id);
@@ -250,7 +250,7 @@ module.exports = async (req, res) => {
 
     // POST ?action=sync — manual sync
     if (req.method === 'POST' && action === 'sync') {
-        const { user } = await verifyUser(req);
+        const user = await verifyUser(req);
         if (!user) return res.status(401).json({ ok: false, error: 'Unauthorized' });
         try {
             const result = await syncForUser(user.id);
@@ -264,7 +264,7 @@ module.exports = async (req, res) => {
 
     // POST ?action=disconnect
     if (req.method === 'POST' && action === 'disconnect') {
-        const { user } = await verifyUser(req);
+        const user = await verifyUser(req);
         if (!user) return res.status(401).json({ ok: false, error: 'Unauthorized' });
         await serviceClient().from('tl_dropbox_tokens').delete().eq('user_id', user.id);
         return res.json({ ok: true });
