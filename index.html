@@ -1170,6 +1170,18 @@
       drawCad(t.latlngs||[]);
     }
 
+    function drawChartYLabels(ctx, H, dark, topLabel, botLabel) {
+      const text2 = getComputedStyle(html).getPropertyValue('--text2').trim();
+      const bg = dark ? 'rgba(0,0,0,.35)' : 'rgba(255,255,255,.55)';
+      ctx.font = '9px system-ui';
+      ctx.textAlign = 'left';
+      [[topLabel, 2, 11], [botLabel, H-14, H-4]].forEach(([txt, ry, ty]) => {
+        const tw = ctx.measureText(txt).width;
+        ctx.fillStyle = bg; ctx.fillRect(3, ry, tw+4, 12);
+        ctx.fillStyle = text2; ctx.fillText(txt, 5, ty);
+      });
+    }
+
     // ── Elevation chart ──
     function drawElevation(latlngs) {
       const canvas = document.getElementById('elev-canvas');
@@ -1193,6 +1205,7 @@
       ctx.fillStyle=grad; ctx.fill();
       ctx.beginPath(); pts.forEach((_,i)=>i===0?ctx.moveTo(ptX(i),ptY(i)):ctx.lineTo(ptX(i),ptY(i)));
       ctx.strokeStyle=lineColor; ctx.lineWidth=1.8; ctx.stroke();
+      drawChartYLabels(ctx, H, dark, fmtElev(maxE), fmtElev(minE));
     }
 
     function drawHR(latlngs) {
@@ -1218,6 +1231,7 @@
       ctx.fillStyle=grad;ctx.fill();
       ctx.beginPath();pts.forEach((_,i)=>i===0?ctx.moveTo(ptX(i),ptY(i)):ctx.lineTo(ptX(i),ptY(i)));
       ctx.strokeStyle=lineColor;ctx.lineWidth=1.8;ctx.stroke();
+      drawChartYLabels(ctx, H, dark, maxH+' bpm', minH+' bpm');
     }
 
     function drawCad(latlngs) {
@@ -1243,6 +1257,7 @@
       ctx.fillStyle=grad;ctx.fill();
       ctx.beginPath();pts.forEach((_,i)=>i===0?ctx.moveTo(ptX(i),ptY(i)):ctx.lineTo(ptX(i),ptY(i)));
       ctx.strokeStyle=lineColor;ctx.lineWidth=1.8;ctx.stroke();
+      drawChartYLabels(ctx, H, dark, String(maxC), String(minC));
     }
 
     // ── Delete ──
