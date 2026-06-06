@@ -168,6 +168,12 @@ All activity type strings are lowercased and stripped of whitespace/hyphens befo
 
 "Wipe all activities" button in manager mode (user menu) calls `POST /api/wipe`. Requires confirmation.
 
+## Map Interaction
+
+**Locate Me (◎ button):** places a blue `circleMarker` at the GPS position and pans to it. The marker lives in a dedicated `locationPane` (z-index 650) created at map init. This is required because the heatmap canvas is a separate DOM element that sits above the SVG `overlayPane` (z-index 400) where normal circleMarkers live — `bringToFront()` can't cross that boundary. z-index 650 puts the dot above both the heatmap (400) and the Leaflet markerPane (600).
+
+**Track selection:** clicking a track highlights it (white, weight 5, opacity 1) and dims all other polylines to opacity 0.15, weight 2. The heatmap also dims to 0.25. Closing the detail panel restores everything. Same pattern as TrailView.
+
 ## Manager Mode
 
 Toggle in browser console: `localStorage.setItem('tl-manager', '1')` then reload.
