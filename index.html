@@ -1409,6 +1409,77 @@
         _d: distM, _t: durSec, _g: elevGain,
       };
     }
+    function parseTcx(xmlText, filename) {
+      let doc;
+      try { doc = new DOMParser().parseFromString(xmlText,'application/xml'); } catch(e) { return null; }
+      const activity = doc.querySelector('Activity');
+      if (!activity) return null;
+      const sport = activity.getAttribute('Sport') || '';
+      const startTime = activity.querySelector('Id')?.textContent?.trim() || null;
+      const laps = [...activity.querySelectorAll('Lap')];
+      if (!laps.length) return null;
+
+      // Lap-level aggregate stats
+      let distM=0, totalTimeSec=0, maxSpd=0, sumAvgHr=0, hrCount=0, maxHr=0, sumCad=0, cadCount=0;
+      laps.forEach(lap => {
+        const d=parseFloat(lap.querySelector(':scope > DistanceMeters')?.textContent||'');
+        const t=parseFloat(lap.querySelector(':scope > TotalTimeSeconds')?.textContent||'');
+        const spd=parseFloat(lap.querySelector(':scope > MaximumSpeed')?.textContent||'');
+        const avgHr=parseInt(lap.querySelector(':scope > AverageHeartRateBpm Value')?.textContent||'');
+        const mxHr=parseInt(lap.querySelector(':scope > MaximumHeartRateBpm Value')?.textContent||'');
+        const cad=parseInt(lap.querySelector(':scope > Cadence')?.textContent||'');
+        if (!isNaN(d)) distM+=d;
+        if (!isNaN(t)) totalTimeSec+=t;
+        if (!isNaN(spd)&&spd>maxSpd) maxSpd=spd;
+        if (!isNaN(avgHr)&&avgHr>0) { sumAvgHr+=avgHr; hrCount++; }
+        if (!isNaN(mxHr)&&mxHr>maxHr) maxHr=mxHr;
+        if (!isNaN(cad)&&cad>0) { sumCad+=cad; cadCount++; }
+      });
+
+      // Trackpoints for GPS track, elevation, bbox
+      const pts=[]; let firstTime=null, lastTime=null;
+      activity.querySelectorAll('Trackpoint').forEach(tp => {
+        const lat=parseFloat(tp.querySelector('LatitudeDegrees')?.textContent||'');
+        const lon=parseFloat(tp.querySelector('LongitudeDegrees')?.textContent||'');
+        if (isNaN(lat)||isNaN(lon)) return;
+        const ele=parseFloat(tp.querySelector('AltitudeMeters')?.textContent||'');
+        const time=tp.querySelector('Time')?.textContent?.trim()||null;
+        const hr=parseInt(tp.querySelector('HeartRateBpm Value')?.textContent||'');
+        const cad=parseInt(tp.querySelector('Cadence')?.textContent||'');
+        if (!firstTime&&time) firstTime=time;
+        if (time) lastTime=time;
+        const hasHr=!isNaN(hr)&&hr>0, hasCad=!isNaN(cad)&&cad>0;
+        pts.push([lat,lon,isNaN(ele)?null:ele,...(hasHr||hasCad?[hasHr?hr:null,hasCad?cad:null]:[])]);
+      });
+      if (pts.length < 2) return null;
+
+      const durSec = totalTimeSec>0 ? Math.round(totalTimeSec) : (firstTime&&lastTime ? Math.round((new Date(lastTime)-new Date(firstTime))/1000) : null);
+      let elevGain=0, elevLoss=0;
+      const eles=pts.map(p=>p[2]).filter(e=>e!=null);
+      let lastEle=eles.length?eles[0]:0;
+      for (let i=1;i<eles.length;i++) { const d=eles[i]-lastEle; if(Math.abs(d)>=1){if(d>0)elevGain+=d;else elevLoss+=-d;lastEle=eles[i];} }
+      const lats=pts.map(p=>p[0]), lons=pts.map(p=>p[1]);
+      const bbox={s:+Math.min(...lats).toFixed(4),w:+Math.min(...lons).toFixed(4),n:+Math.max(...lats).toFixed(4),e:+Math.max(...lons).toFixed(4)};
+      const st=startTime||firstTime;
+      return {
+        source_id: makeSourceId(filename, st, pts[0][0], pts[0][1]),
+        name: filename.replace(/\.tcx(\.gz)?$/i,'').replace(/[_-]/g,' '),
+        type: mapType(sport)||null,
+        start_time: st,
+        distance: +distM.toFixed(1),
+        total_time: durSec, moving_time: durSec,
+        elev_gain: eles.length>1 ? +elevGain.toFixed(1) : null,
+        elev_loss: eles.length>1 ? +elevLoss.toFixed(1) : null,
+        avg_speed: (durSec&&durSec>0) ? +(distM/durSec).toFixed(4) : null,
+        max_speed: maxSpd>0 ? +maxSpd.toFixed(4) : null,
+        avg_hr: hrCount>0 ? Math.round(sumAvgHr/hrCount) : null,
+        max_hr: maxHr>0 ? maxHr : null,
+        avg_cad: cadCount>0 ? Math.round(sumCad/cadCount) : null,
+        bbox_s:bbox.s, bbox_w:bbox.w, bbox_n:bbox.n, bbox_e:bbox.e,
+        geo_points: decimate(pts,50),
+        _d: distM, _t: durSec, _g: elevGain,
+      };
+    }
     function parseCsvLine(line) {
       const result=[]; let cur='', inQ=false;
       for (const ch of line) { if(ch==='"'){inQ=!inQ;} else if(ch===','&&!inQ){result.push(cur);cur='';} else{cur+=ch;} }
@@ -1550,11 +1621,12 @@
                 const stream=new Blob([buf]).stream().pipeThrough(ds);
                 text=new TextDecoder().decode(await new Response(stream).arrayBuffer());
               } catch(e) { totalSkipped++; continue; }
-              if (!text.includes('<gpx')&&!text.includes('<trkpt')) { totalSkipped++; continue; }
+              if (!text.includes('<gpx')&&!text.includes('<trkpt')&&!text.includes('<TrainingCenterDatabase')) { totalSkipped++; continue; }
             } else {
               text=await file.text();
             }
-            const parsed=parseGpx(text,file.name);
+            const isTcx=file.name.toLowerCase().endsWith('.tcx')||file.name.toLowerCase().endsWith('.tcx.gz');
+            const parsed=isTcx ? parseTcx(text,file.name) : parseGpx(text,file.name);
             if (!parsed) { totalSkipped++; continue; }
 
             const base=file.name.replace(/\.(gpx|tcx)(\.gz)?$/i,'');
@@ -1569,8 +1641,8 @@
               if (meta.max_hr != null) parsed.max_hr=meta.max_hr;
               if (meta.avg_cad != null) parsed.avg_cad=meta.avg_cad;
             } else {
-              parsed.type=inferType(parsed._d,parsed._t,parsed._g);
-              parsed.source=file.name.toLowerCase().startsWith('route_')?'apple_health':'gpx';
+              parsed.type=parsed.type||inferType(parsed._d,parsed._t,parsed._g);
+              parsed.source=file.name.toLowerCase().startsWith('route_')?'apple_health':(isTcx?'tcx':'gpx');
             }
             delete parsed._d; delete parsed._t; delete parsed._g;
             if (parsed.source_id && seenSourceIds.has(parsed.source_id)) { totalSkipped++; continue; }
@@ -1594,7 +1666,7 @@
           finishImportModal('ok','Import complete',`${totalUploaded} ${totalUploaded===1?'activity':'activities'} imported.`+(totalSkipped>0?`\n${totalSkipped} files skipped.`:''));
           await loadTypes(); await loadFilter(null,null,true);
         } else {
-          finishImportModal(totalSkipped>0?'error':'ok', totalSkipped>0?'Nothing imported':'Already up to date', totalSkipped>0?'No valid GPX tracks found.':'No new activities found.');
+          finishImportModal(totalSkipped>0?'error':'ok', totalSkipped>0?'Nothing imported':'Already up to date', totalSkipped>0?'No valid GPX/TCX tracks found.':'No new activities found.');
         }
       } catch(e) {
         debugLog('import failed: '+e.message,'error');

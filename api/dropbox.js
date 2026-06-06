@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 const { verifyUser } = require('./_lib/auth');
 const { serviceClient } = require('./_lib/supabase');
-const { parseGpxBuffer, sourceIdFromFilename, inferType } = require('./_lib/gpx');
+const { parseGpxBuffer, parseTcxBuffer, sourceIdFromFilename, inferType } = require('./_lib/gpx');
 
 const APP_KEY    = process.env.DROPBOX_APP_KEY;
 const APP_SECRET = process.env.DROPBOX_APP_SECRET;
@@ -105,7 +105,7 @@ async function syncForUser(userId) {
         const body = cursor
             ? await dbxPost('https://api.dropboxapi.com/2/files/list_folder/continue', token, { cursor })
             : await dbxPost('https://api.dropboxapi.com/2/files/list_folder', token, { path: folderPath, limit: 2000 });
-        entries = entries.concat((body.entries || []).filter(e => e['.tag'] === 'file' && e.name.toLowerCase().endsWith('.gpx')));
+        entries = entries.concat((body.entries || []).filter(e => e['.tag'] === 'file' && /\.(gpx|tcx)(\.gz)?$/i.test(e.name)));
         cursor = body.has_more ? body.cursor : null;
     } while (cursor);
 
@@ -135,12 +135,13 @@ async function syncForUser(userId) {
     for (const entry of toProcess) {
         try {
             const buf = await dbxDownload(entry.path_lower, token);
-            const parsed = parseGpxBuffer(buf, entry.name);
+            const isTcx = /\.tcx(\.gz)?$/i.test(entry.name);
+            const parsed = isTcx ? parseTcxBuffer(buf, entry.name) : parseGpxBuffer(buf, entry.name);
             if (!parsed) continue;
 
             parsed.source = 'dropbox';
-            parsed.type = inferType(parsed._d, parsed._t, parsed._g);
-            delete parsed._d; delete parsed._t; delete parsed._g;
+            parsed.type = parsed._sport || inferType(parsed._d, parsed._t, parsed._g);
+            delete parsed._d; delete parsed._t; delete parsed._g; delete parsed._sport;
 
             const record = {
                 user_id:     userId,
