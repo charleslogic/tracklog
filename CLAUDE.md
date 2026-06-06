@@ -23,7 +23,7 @@ tracklog/
 │   ├── _lib/
 │   │   ├── supabase.js     — serviceClient() and anonClient() singletons
 │   │   ├── auth.js         — verifyUser() and verifyApprovedUser() (uses tl_profiles)
-│   │   └── gpx.js          — server-side GPX parser (fast-xml-parser); shared by dropbox.js
+│   │   └── gpx.js          — server-side GPX + TCX parser (fast-xml-parser); shared by dropbox.js
 │   ├── profile.js          — GET /api/profile; admin: list, approve, invite, delete
 │   ├── types.js            — GET /api/types (distinct activity types + colors)
 │   ├── list.js             — GET /api/list (scalar metadata, bbox/date filters)
@@ -92,7 +92,7 @@ Replaces the old Strava API integration. Pipeline:
 Apple Watch (WorkOutDoors) → Apple Health → HealthFit (iOS) → Dropbox /Apps/HealthFitExporter/ → TrackLog
 ```
 
-HealthFit automatically exports new workouts as GPX files to Dropbox after each workout syncs to Apple Health.
+HealthFit automatically exports new workouts as GPX files to Dropbox after each workout syncs to Apple Health. TCX files are also supported if a future export source uses that format.
 
 ### How it works
 
@@ -100,6 +100,7 @@ HealthFit automatically exports new workouts as GPX files to Dropbox after each 
 - **App-level credentials**: `DROPBOX_APP_KEY` and `DROPBOX_APP_SECRET` identify the TrackLog application to Dropbox (not per-user — same for everyone, correct to keep in env vars).
 - **Webhook**: Dropbox POSTs to `/api/dropbox` when files change. The handler verifies the HMAC-SHA256 signature against the **raw request body bytes** (not re-serialized JSON — Vercel's body parser is disabled via `module.exports.config = { api: { bodyParser: false } }` so we read raw bytes directly). Looks up which TrackLog user owns the changed Dropbox account and syncs their new GPX files.
 - **Manual sync**: "Sync from Dropbox" button in the user menu triggers the same logic on demand.
+- **File formats**: Picks up `.gpx`, `.tcx`, `.gpx.gz`, and `.tcx.gz` files. TCX format is preferred when available — it includes `DistanceMeters` from the recording device (pedometer-accurate) rather than requiring GPS summation.
 - **Deduplication**: Uses existing `source_id` upsert. HealthFit files named `Route_*.gpx` get `source_id = 'ah_route_...'` from filename alone, so already-imported files are skipped before downloading.
 - **Token refresh**: Short-lived Dropbox tokens are refreshed automatically before each API call if within 5 minutes of expiry.
 - **Webhook sync is synchronous**: The handler awaits all `syncForUser()` calls before responding 200. Vercel terminates functions after the response is sent, so fire-and-forget doesn't work — work must complete before responding. Dropbox allows 10s; syncing a few new files typically takes 2-3s.
@@ -148,23 +149,36 @@ If you wipe TrackLog and reimport from a Strava bulk export:
 
 1. User clicks "Import activities" in the user menu
 2. `showDirectoryPicker()` opens a folder picker (Chrome/Edge only)
-3. App walks the folder tree recursively, collecting `.gpx` and `.gz` files
+3. App walks the folder tree recursively, collecting `.gpx`, `.tcx`, and `.gz` files
 4. If `activities.csv` is found at the root (Strava export), it's parsed for metadata (name, type, activity ID, max speed, avg/max HR, avg cadence)
-5. Each GPX file is parsed with `DOMParser`; `.gz` files are decompressed with `DecompressionStream('gzip')` (built-in browser API, no library needed)
-6. Track points are decimated to 50 points client-side; HR (`gpxtpx:hr`) and cadence (`gpxtpx:cad`) extracted from GPX extensions and stored as slots 4 and 5 of each point
-7. Metadata enrichment:
+5. Each file is parsed with `DOMParser`; `.gz` files are decompressed with `DecompressionStream('gzip')` (built-in browser API, no library needed)
+6. **TCX files** (`parseTcx`): distance comes from `<Lap><DistanceMeters>` (device pedometer, accurate). HR, cadence, max speed, total time from Lap-level fields. Sport attribute maps to activity type directly.
+7. **GPX files** (`parseGpx`): track points decimated to 50 pts; HR (`gpxtpx:hr`) and cadence (`gpxtpx:cad`) from extensions. Distance computed from GPS with speed-based noise filter — see GPS Distance Accuracy below.
+8. Metadata enrichment:
    - **Strava export**: CSV provides name, type (mapped via TYPE_MAP), activity ID, max_speed, avg_hr, max_hr, avg_cad
-   - **Apple Health**: GPX filename starts with `Route_` → `source_id = "ah_Route_..."`; type inferred from speed
-   - **Generic GPX**: type inferred from speed/elevation, `source_id` from start time + coordinates
-8. Start lat/lon is reverse-geocoded via Nominatim (free, no key) to produce a "City, ST" location string. Results cached in-memory by ~11km grid cell so repeated imports of the same area cost only 1 API call. Nominatim rate limit: 1 req/sec.
-9. Activities batch-POSTed to `/api/import` (20 per batch)
-10. On completion, types and map reload
+   - **Apple Health**: filename starts with `Route_` → `source_id = "ah_Route_..."`; type inferred from speed
+   - **Generic GPX/TCX**: type inferred from speed/elevation (GPX) or Sport attribute (TCX); `source_id` from start time + coordinates
+9. Start lat/lon is reverse-geocoded via Nominatim (free, no key) to produce a "City, ST" location string. Results cached in-memory by ~11km grid cell so repeated imports of the same area cost only 1 API call. Nominatim rate limit: 1 req/sec.
+10. Activities batch-POSTed to `/api/import` (20 per batch)
+11. On completion, types and map reload
 
 **No wipe on import** — every import is a safe upsert. Re-importing updates existing records (fixes names/types) and adds new ones. Duplicate detection uses `source_id` per user.
 
-## GPX Parsing (server-side)
+## GPX/TCX Parsing (server-side)
 
-`api/_lib/gpx.js` is a port of the client-side GPX logic from `index.html`, using `fast-xml-parser` instead of `DOMParser`. Used by `api/dropbox.js` for server-side sync. The same `TYPE_MAP`, `inferType`, `decimate`, `haversineM`, and `makeSourceId` functions are used — if you change the client-side logic, mirror the change in `_lib/gpx.js`.
+`api/_lib/gpx.js` exports two parsers used by `api/dropbox.js`:
+- `parseGpxBuffer(buf, filename)` — GPX via fast-xml-parser; same logic as client-side `parseGpx()`
+- `parseTcxBuffer(buf, filename)` — TCX via fast-xml-parser; reads `DistanceMeters` from Lap elements
+
+The same `TYPE_MAP`, `inferType`, `decimate`, `haversineM`, and `makeSourceId` functions are shared. If you change the client-side logic, mirror the change in `_lib/gpx.js` and vice versa.
+
+## GPS Distance Accuracy
+
+GPX distance is computed from raw GPS coordinates using a **speed-based noise filter**: segments implying speed > 10 m/s (~22 mph) between consecutive kept points are rejected as GPS jumps. Falls back to a 3 m minimum-distance threshold for files without timestamps.
+
+**Known limitation:** Apple Watch records GPS at ~1 Hz. At walking pace (~1.4 m/s), real movement per sample is smaller than typical urban GPS noise (5–15 m in Las Vegas-style dense environments). The speed filter removes the worst GPS spikes but cannot eliminate all noise — GPX-computed distance will be higher than the Watch's pedometer-based distance shown in HealthFit/Apple Health.
+
+**TCX avoids this entirely** by reading `DistanceMeters` directly from the device. For Apple Watch workouts, export TCX from Garmin Connect or similar if available; HealthFit (as of 2026) only exports GPX, FIT, CSV, or Markdown.
 
 ## Type Normalization
 
@@ -177,6 +191,8 @@ All activity type strings are lowercased and stripped of whitespace/hyphens befo
 ## Map Interaction
 
 **Locate Me (◎ button):** places a blue `circleMarker` at the GPS position and pans to it. The marker lives in a dedicated `locationPane` (z-index 650) created at map init. This is required because the heatmap canvas is a separate DOM element that sits above the SVG `overlayPane` (z-index 400) where normal circleMarkers live — `bringToFront()` can't cross that boundary. z-index 650 puts the dot above both the heatmap (400) and the Leaflet markerPane (600).
+
+**Track list:** each item shows name, type · distance · duration, and location. The date column shows the date on one line and the 12-hour time (e.g. `2:15 PM`) below it, right-aligned.
 
 **Track selection:** clicking a track highlights it (white, weight 5, opacity 1) and dims all other polylines to opacity 0.15, weight 2. The heatmap also dims to 0.25. Closing the detail panel restores everything. Same pattern as TrailView.
 
