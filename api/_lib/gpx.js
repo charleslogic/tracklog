@@ -69,6 +69,17 @@ function sourceIdFromFilename(filename) {
     return null;
 }
 
+function findHr(obj) {
+    if (!obj || typeof obj !== 'object') return null;
+    for (const k of Object.keys(obj)) {
+        const local = k.includes(':') ? k.split(':').pop() : k;
+        if (local === 'hr') { const v = parseInt(obj[k]); return isNaN(v) ? null : v; }
+        const found = findHr(obj[k]);
+        if (found !== null) return found;
+    }
+    return null;
+}
+
 const XML_PARSER = new XMLParser({
     ignoreAttributes: false,
     attributeNamePrefix: '@_',
@@ -98,7 +109,8 @@ function parseGpxBuffer(bufferOrString, filename) {
         const time = pt.time ? String(pt.time) : null;
         if (!firstTime && time) firstTime = time;
         if (time) lastTime = time;
-        pts.push([lat, lon, isNaN(ele) ? null : ele]);
+        const hr = pt.extensions ? findHr(pt.extensions) : null;
+        pts.push([lat, lon, isNaN(ele) ? null : ele, ...(hr !== null ? [hr] : [])]);
     }
     if (pts.length < 2) return null;
 

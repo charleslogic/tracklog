@@ -599,6 +599,10 @@
             <canvas id="elev-canvas"></canvas>
             <div id="elev-label">Elevation Profile</div>
           </div>
+          <div id="hr-wrap" style="display:none;margin-bottom:12px;">
+            <canvas id="hr-canvas" style="width:100%;height:72px;display:block;border-radius:6px;"></canvas>
+            <div style="font-size:.68rem;color:var(--text2);text-align:center;margin-top:3px;">Heart Rate</div>
+          </div>
           <div class="stat-grid">
             <div class="stat-box"><div class="stat-val" id="d-dist">—</div><div class="stat-lbl">Distance</div></div>
             <div class="stat-box"><div class="stat-val" id="d-type">—</div><div class="stat-lbl">Type</div></div>
@@ -608,6 +612,8 @@
             <div class="stat-box"><div class="stat-val" id="d-loss">—</div><div class="stat-lbl">Elev Loss</div></div>
             <div class="stat-box"><div class="stat-val" id="d-avgspd">—</div><div class="stat-lbl">Avg Speed</div></div>
             <div class="stat-box"><div class="stat-val" id="d-maxspd">—</div><div class="stat-lbl">Max Speed</div></div>
+            <div class="stat-box" id="d-avghr-box" style="display:none"><div class="stat-val" id="d-avghr">—</div><div class="stat-lbl">Avg HR</div></div>
+            <div class="stat-box" id="d-maxhr-box" style="display:none"><div class="stat-val" id="d-maxhr">—</div><div class="stat-lbl">Max HR</div></div>
             <div class="stat-box full"><div class="stat-val" id="d-start" style="font-size:.85rem">—</div><div class="stat-lbl">Start Time</div></div>
           </div>
           <button class="detail-delete" id="d-delete">Delete Track</button>
@@ -730,7 +736,7 @@
     userBtn.addEventListener('click', e => { e.stopPropagation(); const showing = configCard.classList.toggle('show'); userBtn.classList.toggle('active', showing); });
     document.addEventListener('click', e => { if (!configCard.contains(e.target) && e.target !== userBtn) { configCard.classList.remove('show'); userBtn.classList.remove('active'); } });
     document.querySelectorAll('.cfg-theme-btn').forEach(btn => {
-      btn.addEventListener('click', () => { storageSet('tl-theme', btn.dataset.t); applyTheme(btn.dataset.t); if (selectedId && lastTrackData) drawElevation(lastTrackData.latlngs); });
+      btn.addEventListener('click', () => { storageSet('tl-theme', btn.dataset.t); applyTheme(btn.dataset.t); if (selectedId && lastTrackData) { drawElevation(lastTrackData.latlngs); drawHR(lastTrackData.latlngs); } });
     });
     document.getElementById('cfg-log-btn').addEventListener('click', () => {
       const isVisible = dbgPanel.style.display === 'block';
@@ -1136,7 +1142,14 @@
       document.getElementById('d-maxspd').textContent = fmtSpd(t.max_speed);
       document.getElementById('d-start').textContent = fmtDate(t.start_time);
       document.getElementById('d-delete').dataset.id = id;
+      const hrPts=(t.latlngs||[]).map(p=>p[3]).filter(h=>h!=null&&h>0);
+      const hasHr=hrPts.length>1;
+      document.getElementById('d-avghr-box').style.display=hasHr?'':'none';
+      document.getElementById('d-maxhr-box').style.display=hasHr?'':'none';
+      document.getElementById('d-avghr').textContent=hasHr?Math.round(hrPts.reduce((a,b)=>a+b,0)/hrPts.length)+' bpm':'—';
+      document.getElementById('d-maxhr').textContent=hasHr?Math.max(...hrPts)+' bpm':'—';
       drawElevation(t.latlngs||[]);
+      drawHR(t.latlngs||[]);
     }
 
     // ── Elevation chart ──
@@ -1162,6 +1175,31 @@
       ctx.fillStyle=grad; ctx.fill();
       ctx.beginPath(); pts.forEach((_,i)=>i===0?ctx.moveTo(ptX(i),ptY(i)):ctx.lineTo(ptX(i),ptY(i)));
       ctx.strokeStyle=lineColor; ctx.lineWidth=1.8; ctx.stroke();
+    }
+
+    function drawHR(latlngs) {
+      const wrap=document.getElementById('hr-wrap');
+      const canvas=document.getElementById('hr-canvas');
+      const pts=latlngs.filter(p=>p[3]!=null&&p[3]>0);
+      if (pts.length<2){wrap.style.display='none';return;}
+      wrap.style.display='';
+      canvas.width=wrap.offsetWidth||300; canvas.height=72;
+      const ctx=canvas.getContext('2d');
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      const hrs=pts.map(p=>p[3]),minH=Math.min(...hrs),maxH=Math.max(...hrs),range=maxH-minH||1;
+      const W=canvas.width,H=canvas.height,pad=3;
+      const dark=html.getAttribute('data-theme')==='dark';
+      const lineColor=dark?'#f87171':'#dc2626';
+      const grad=ctx.createLinearGradient(0,0,0,H);
+      grad.addColorStop(0,dark?'rgba(248,113,113,.45)':'rgba(220,38,38,.35)');
+      grad.addColorStop(1,dark?'rgba(248,113,113,.03)':'rgba(220,38,38,.03)');
+      function ptX(i){return pad+(i/(pts.length-1))*(W-pad*2);}
+      function ptY(i){return H-pad-((pts[i][3]-minH)/range)*(H-pad*2);}
+      ctx.beginPath();pts.forEach((_,i)=>i===0?ctx.moveTo(ptX(i),ptY(i)):ctx.lineTo(ptX(i),ptY(i)));
+      ctx.lineTo(ptX(pts.length-1),H-pad);ctx.lineTo(ptX(0),H-pad);ctx.closePath();
+      ctx.fillStyle=grad;ctx.fill();
+      ctx.beginPath();pts.forEach((_,i)=>i===0?ctx.moveTo(ptX(i),ptY(i)):ctx.lineTo(ptX(i),ptY(i)));
+      ctx.strokeStyle=lineColor;ctx.lineWidth=1.8;ctx.stroke();
     }
 
     // ── Delete ──
@@ -1261,7 +1299,10 @@
         if (isNaN(lat)||isNaN(lon)) return;
         if (!firstTime && time) firstTime=time;
         if (time) lastTime=time;
-        pts.push([lat,lon,isNaN(ele)?null:ele]);
+        let hr=null;
+        const ext=pt.querySelector('extensions');
+        if (ext) { for (const el of ext.querySelectorAll('*')) { if (el.localName==='hr'){const v=parseInt(el.textContent);if(!isNaN(v)&&v>0){hr=v;break;}} } }
+        pts.push([lat,lon,isNaN(ele)?null:ele,...(hr!==null?[hr]:[])]);
       });
       if (pts.length < 2) return null;
       const name = doc.querySelector('trk name')?.textContent?.trim() || doc.querySelector('metadata name')?.textContent?.trim() || null;
