@@ -845,8 +845,10 @@
     function getMapFitOptions(pad, maxZoom) {
       pad = pad || 28;
       const extra = maxZoom ? { maxZoom } : {};
+      // On mobile the panel slides up from the bottom and overlaps the map — compensate.
+      // On desktop the map's CSS right = var(--panel-w) so the map div is already sized
+      // to exclude the panel; no extra compensation needed.
       if (window.innerWidth < 768) return { paddingTopLeft:[pad,pad], paddingBottomRight:[pad, Math.round(window.innerHeight*.5)+pad], ...extra };
-      if (!panelCollapsed) return { paddingTopLeft:[pad,pad], paddingBottomRight:[340+pad,pad], ...extra };
       return { padding:[pad,pad], ...extra };
     }
     function fitAll() {
@@ -1073,7 +1075,7 @@
       if (!heatLayer) {
         heatLayer = L.heatLayer(pts, { radius:14, blur:12, maxZoom:17, max:Math.pow(10,(5-heatIntensity)/4), minOpacity:0.28 }).addTo(map);
         updateHeatRadius(); heatBounds = bounds;
-        if (firstLoad && bounds.isValid()) { map.fitBounds(bounds, {padding:[28,28]}); firstLoad=false; }
+        if (firstLoad && bounds.isValid()) { map.fitBounds(bounds, getMapFitOptions(28)); firstLoad=false; }
         try { heatLayer._canvas.style.opacity='0'; heatLayer._canvas.style.transition='opacity 0.8s ease'; requestAnimationFrame(()=>{heatLayer._canvas.style.opacity=heatVisible?'1':'0';}); } catch(e) {}
       } else { heatLayer.setLatLngs(pts); }
       filteredHeatBounds = bounds;
