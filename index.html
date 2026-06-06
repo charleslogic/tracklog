@@ -1092,12 +1092,14 @@
     // ── Track selection ──
     async function selectTrack(id) {
       setHeatOpacity('0.25');
-      if (selectedId && trackLayers[selectedId]) { const prev=allTracks.find(t=>t.id===selectedId); trackLayers[selectedId].setStyle({weight:3,opacity:0.72,color:(typeMeta[prev?.type]||{}).color||'#888'}); }
       if (startMarker) { map.removeLayer(startMarker); startMarker=null; }
       selectedId = id; lastTrackData = null;
       document.querySelectorAll('.track-item').forEach(el => el.classList.toggle('selected', el.dataset.id===id));
       const poly = trackLayers[id];
       if (poly) { poly.setStyle({weight:5,opacity:1,color:'#ffffff'}); poly.bringToFront(); map.fitBounds(poly.getBounds(), getMapFitOptions(40,14)); }
+      Object.entries(trackLayers).forEach(([tid, p]) => {
+        if (tid !== id) { const t=allTracks.find(t=>t.id===tid); p.setStyle({weight:2,opacity:0.15,color:(typeMeta[t?.type]||{}).color||'#888'}); }
+      });
       try {
         let track = trackCache.get(id);
         if (!track) { const r=await apiFetch('/api/track?id='+encodeURIComponent(id)); if(!r.ok) throw new Error(); track=await r.json(); trackCache.set(id,track); }
@@ -1111,7 +1113,7 @@
     }
     function deselectAll() {
       setHeatOpacity('');
-      if (selectedId && trackLayers[selectedId]) { const prev=allTracks.find(t=>t.id===selectedId); trackLayers[selectedId].setStyle({weight:3,opacity:0.72,color:(typeMeta[prev?.type]||{}).color||'#888'}); }
+      Object.entries(trackLayers).forEach(([tid, p]) => { const t=allTracks.find(t=>t.id===tid); p.setStyle({weight:3,opacity:0.72,color:(typeMeta[t?.type]||{}).color||'#888'}); });
       if (startMarker) { map.removeLayer(startMarker); startMarker=null; }
       selectedId=null; lastTrackData=null;
       document.querySelectorAll('.track-item').forEach(el => el.classList.remove('selected'));
