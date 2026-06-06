@@ -124,12 +124,23 @@ function parseGpxBuffer(bufferOrString, filename) {
     const startTime = firstTime || gpx.metadata?.time?.toString()?.trim() || null;
     const durSec = (firstTime && lastTime) ? Math.round((new Date(lastTime) - new Date(firstTime)) / 1000) : null;
 
+    // Filter GPS noise: skip points within 3 m of the last kept point before summing distance.
+    // Raw GPS jitter while stationary accumulates into significant fake distance otherwise.
     let distM = 0;
-    for (let i = 1; i < pts.length; i++) distM += haversineM(pts[i-1][0], pts[i-1][1], pts[i][0], pts[i][1]);
+    let lastKeptIdx = 0;
+    for (let i = 1; i < pts.length; i++) {
+        const d = haversineM(pts[lastKeptIdx][0], pts[lastKeptIdx][1], pts[i][0], pts[i][1]);
+        if (d >= 3) { distM += d; lastKeptIdx = i; }
+    }
 
+    // Elevation: ignore step-changes smaller than 1 m to suppress GPS altitude noise.
     let elevGain = 0, elevLoss = 0;
     const eles = pts.map(p => p[2]).filter(e => e != null);
-    for (let i = 1; i < eles.length; i++) { const d = eles[i] - eles[i-1]; if (d > 0) elevGain += d; else elevLoss += -d; }
+    let lastEle = eles[0];
+    for (let i = 1; i < eles.length; i++) {
+        const d = eles[i] - lastEle;
+        if (Math.abs(d) >= 1) { if (d > 0) elevGain += d; else elevLoss += -d; lastEle = eles[i]; }
+    }
 
     const lats = pts.map(p => p[0]), lons = pts.map(p => p[1]);
     const bbox = { s: +Math.min(...lats).toFixed(4), w: +Math.min(...lons).toFixed(4), n: +Math.max(...lats).toFixed(4), e: +Math.max(...lons).toFixed(4) };
