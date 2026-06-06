@@ -53,7 +53,12 @@ Shared project `nfvxmkknkxysjksyhbek` (same as all CharlesLogic apps). Tables us
 
 Tables:
 - `tl_profiles` — one row per user, `approved` boolean, display_name
-- `tl_activities` — one row per activity, `geo_points JSONB` stores 50-pt `[[lat,lon,ele,hr?,cad?]]` (3 slots when no extension data; 5 slots when HR or cadence present). Scalar columns: `avg_hr`, `max_hr`, `avg_cad` (from Strava CSV, used as fallback when per-point data absent)
+- `tl_activities` — one row per activity. Key columns:
+  - `geo_points JSONB` — 50-pt `[[lat,lon,ele,hr?,cad?]]`: 3 slots when no extension data, 5 slots when HR or cadence is present (null for whichever is absent)
+  - `max_speed FLOAT` — from Strava CSV "Max Speed" (m/s)
+  - `avg_hr INT`, `max_hr INT` — from Strava CSV scalars; used as fallback when per-point HR is absent from GPX
+  - `avg_cad INT` — from Strava CSV "Average Cadence"; fallback when GPX cadence absent
+  - `location TEXT` — "City, ST" reverse-geocoded at import time via Nominatim; shown in track list and detail panel
 - `tl_invites` — email-based invite list
 - `tl_dropbox_tokens` — per-user Dropbox OAuth tokens: `dropbox_account_id`, `access_token`, `refresh_token`, `expires_at`, `folder_path`
 
@@ -144,15 +149,16 @@ If you wipe TrackLog and reimport from a Strava bulk export:
 1. User clicks "Import activities" in the user menu
 2. `showDirectoryPicker()` opens a folder picker (Chrome/Edge only)
 3. App walks the folder tree recursively, collecting `.gpx` and `.gz` files
-4. If `activities.csv` is found at the root (Strava export), it's parsed for metadata (name, type, activity ID)
+4. If `activities.csv` is found at the root (Strava export), it's parsed for metadata (name, type, activity ID, max speed, avg/max HR, avg cadence)
 5. Each GPX file is parsed with `DOMParser`; `.gz` files are decompressed with `DecompressionStream('gzip')` (built-in browser API, no library needed)
-6. Track points are decimated to 50 points client-side
+6. Track points are decimated to 50 points client-side; HR (`gpxtpx:hr`) and cadence (`gpxtpx:cad`) extracted from GPX extensions and stored as slots 4 and 5 of each point
 7. Metadata enrichment:
-   - **Strava export**: CSV provides name, type (mapped via TYPE_MAP), and numeric activity ID → `source_id = "strava_12345678"`
+   - **Strava export**: CSV provides name, type (mapped via TYPE_MAP), activity ID, max_speed, avg_hr, max_hr, avg_cad
    - **Apple Health**: GPX filename starts with `Route_` → `source_id = "ah_Route_..."`; type inferred from speed
    - **Generic GPX**: type inferred from speed/elevation, `source_id` from start time + coordinates
-8. Activities batch-POSTed to `/api/import` (20 per batch)
-9. On completion, types and map reload
+8. Start lat/lon is reverse-geocoded via Nominatim (free, no key) to produce a "City, ST" location string. Results cached in-memory by ~11km grid cell so repeated imports of the same area cost only 1 API call. Nominatim rate limit: 1 req/sec.
+9. Activities batch-POSTed to `/api/import` (20 per batch)
+10. On completion, types and map reload
 
 **No wipe on import** — every import is a safe upsert. Re-importing updates existing records (fixes names/types) and adds new ones. Duplicate detection uses `source_id` per user.
 
@@ -173,6 +179,8 @@ All activity type strings are lowercased and stripped of whitespace/hyphens befo
 **Locate Me (◎ button):** places a blue `circleMarker` at the GPS position and pans to it. The marker lives in a dedicated `locationPane` (z-index 650) created at map init. This is required because the heatmap canvas is a separate DOM element that sits above the SVG `overlayPane` (z-index 400) where normal circleMarkers live — `bringToFront()` can't cross that boundary. z-index 650 puts the dot above both the heatmap (400) and the Leaflet markerPane (600).
 
 **Track selection:** clicking a track highlights it (white, weight 5, opacity 1) and dims all other polylines to opacity 0.15, weight 2. The heatmap also dims to 0.25. Closing the detail panel restores everything. Same pattern as TrailView.
+
+**`getMapFitOptions(pad, maxZoom)`:** used by all fitBounds calls. On desktop, the map CSS sets `right: var(--panel-w)` so the map div is already sized to exclude the panel — no extra right-padding compensation needed. On mobile the panel slides up from the bottom and overlaps the map, so bottom padding = `50vh + pad` is added. Do NOT add panel-width compensation for desktop; it caused double-shrinking and over-zoomed-out fits.
 
 ## Manager Mode
 
