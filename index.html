@@ -1407,20 +1407,25 @@
     let _geoLastFetch = 0;
     async function geocodeLatLon(lat, lon) {
       const key = `${Math.round(lat * 10) / 10}_${Math.round(lon * 10) / 10}`;
-      if (key in _geoCache) return _geoCache[key];
+      if (key in _geoCache) { console.log('[geo] cache hit', key, '->', _geoCache[key]); return _geoCache[key]; }
       const wait = Math.max(0, 1100 - (Date.now() - _geoLastFetch));
       if (wait > 0) await new Promise(r => setTimeout(r, wait));
       _geoLastFetch = Date.now();
+      const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}&format=json&zoom=10`;
+      console.log('[geo] fetching', url);
       try {
-        const r = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}&format=json&zoom=10`);
+        const r = await fetch(url);
+        console.log('[geo] status', r.status);
         if (!r.ok) { _geoCache[key] = null; return null; }
         const d = await r.json();
+        console.log('[geo] raw address', d.address);
         const a = d.address || {};
         const city = a.city || a.town || a.village || a.county || '';
         const stCode = (a['ISO3166-2-lvl4'] || '').split('-').pop() || a.state || '';
         const loc = [city, stCode].filter(Boolean).join(', ') || null;
+        console.log('[geo] result', loc);
         _geoCache[key] = loc; return loc;
-      } catch { _geoCache[key] = null; return null; }
+      } catch(e) { console.error('[geo] error', e); _geoCache[key] = null; return null; }
     }
 
     async function* walkDir(dir) {
@@ -1536,6 +1541,7 @@
             if (parsed.source_id && seenSourceIds.has(parsed.source_id)) { totalSkipped++; continue; }
             if (parsed.source_id) seenSourceIds.add(parsed.source_id);
             const pt0 = parsed.geo_points?.[0];
+            console.log('[geo] pt0', pt0, 'geo_points length', parsed.geo_points?.length);
             if (pt0) parsed.location = await geocodeLatLon(pt0[0], pt0[1]);
             batch.push(parsed);
 
