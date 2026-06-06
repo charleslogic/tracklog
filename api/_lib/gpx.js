@@ -103,7 +103,7 @@ function parseGpxBuffer(bufferOrString, filename) {
     const trkpts = trksegs.flatMap(s => [].concat(s.trkpt || []));
     if (trkpts.length < 2) return null;
 
-    const pts = []; let firstTime = null, lastTime = null;
+    const pts = []; const times = []; let firstTime = null, lastTime = null;
     for (const pt of trkpts) {
         const lat = parseFloat(pt['@_lat']), lon = parseFloat(pt['@_lon']);
         if (isNaN(lat) || isNaN(lon)) continue;
@@ -115,6 +115,7 @@ function parseGpxBuffer(bufferOrString, filename) {
         const hr = (ext.hr != null) ? ext.hr : null;
         const cad = (ext.cad != null) ? ext.cad : null;
         pts.push([lat, lon, isNaN(ele) ? null : ele, ...(hr !== null || cad !== null ? [hr, cad] : [])]);
+        times.push(time ? Date.parse(time) : null);
     }
     if (pts.length < 2) return null;
 
@@ -124,13 +125,21 @@ function parseGpxBuffer(bufferOrString, filename) {
     const startTime = firstTime || gpx.metadata?.time?.toString()?.trim() || null;
     const durSec = (firstTime && lastTime) ? Math.round((new Date(lastTime) - new Date(firstTime)) / 1000) : null;
 
-    // Filter GPS noise: skip points within 3 m of the last kept point before summing distance.
-    // Raw GPS jitter while stationary accumulates into significant fake distance otherwise.
-    let distM = 0;
-    let lastKeptIdx = 0;
+    // Speed-filtered distance: skip GPS jumps (>10 m/s ~22 mph between kept points).
+    // Falls back to 3 m min-distance when no timestamps in the file.
+    const hasTs = times.some(t => t !== null);
+    let distM = 0, lastKeptIdx = 0;
     for (let i = 1; i < pts.length; i++) {
         const d = haversineM(pts[lastKeptIdx][0], pts[lastKeptIdx][1], pts[i][0], pts[i][1]);
-        if (d >= 3) { distM += d; lastKeptIdx = i; }
+        if (hasTs && times[lastKeptIdx] !== null && times[i] !== null) {
+            if (d < 1) continue;
+            const dt = (times[i] - times[lastKeptIdx]) / 1000;
+            if (dt > 0 && d / dt > 10) continue;
+        } else {
+            if (d < 3) continue;
+        }
+        distM += d;
+        lastKeptIdx = i;
     }
 
     // Elevation: ignore step-changes smaller than 1 m to suppress GPS altitude noise.

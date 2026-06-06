@@ -1349,7 +1349,7 @@
       try { doc = new DOMParser().parseFromString(xmlText,'application/xml'); } catch(e) { return null; }
       const trkpts = doc.querySelectorAll('trkpt');
       if (!trkpts.length) return null;
-      const pts = []; let firstTime=null, lastTime=null;
+      const pts = []; const times = []; let firstTime=null, lastTime=null;
       trkpts.forEach(pt => {
         const lat=parseFloat(pt.getAttribute('lat')), lon=parseFloat(pt.getAttribute('lon'));
         const ele=parseFloat(pt.querySelector('ele')?.textContent||'');
@@ -1364,15 +1364,26 @@
           if (el.localName==='cad'&&cad===null){const v=parseInt(el.textContent);if(!isNaN(v)&&v>0)cad=v;}
         }}
         pts.push([lat,lon,isNaN(ele)?null:ele,...(hr!==null||cad!==null?[hr,cad]:[])]);
+        times.push(time ? Date.parse(time) : null);
       });
       if (pts.length < 2) return null;
       const name = doc.querySelector('trk name')?.textContent?.trim() || doc.querySelector('metadata name')?.textContent?.trim() || null;
       const startTime = firstTime || doc.querySelector('metadata time')?.textContent?.trim() || null;
       const durSec = (firstTime&&lastTime) ? Math.round((new Date(lastTime)-new Date(firstTime))/1000) : null;
+      // Speed-filtered distance: skip GPS jumps (>10 m/s ~22 mph between kept points).
+      // Falls back to 3 m min-distance when no timestamps in the file.
+      const hasTs=times.some(t=>t!==null);
       let distM=0, lastKeptIdx=0;
       for (let i=1;i<pts.length;i++) {
         const d=haversineM(pts[lastKeptIdx][0],pts[lastKeptIdx][1],pts[i][0],pts[i][1]);
-        if (d>=3) { distM+=d; lastKeptIdx=i; }
+        if (hasTs&&times[lastKeptIdx]!==null&&times[i]!==null) {
+          if (d<1) continue;
+          const dt=(times[i]-times[lastKeptIdx])/1000;
+          if (dt>0&&d/dt>10) continue;
+        } else {
+          if (d<3) continue;
+        }
+        distM+=d; lastKeptIdx=i;
       }
       let elevGain=0, elevLoss=0;
       const eles=pts.map(p=>p[2]).filter(e=>e!=null);
