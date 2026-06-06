@@ -781,6 +781,9 @@
     // ── Map init ──
     const map = L.map('map', { zoomControl: false, attributionControl: true });
     map.attributionControl.setPrefix('');
+    let locationMarker = null;
+    const locationPane = map.createPane('locationPane');
+    locationPane.style.zIndex = 650;
     const basemaps = {
       streets: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution:'© <a href="https://www.openstreetmap.org">OpenStreetMap</a>', maxZoom:19 }),
       topo:    L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',    { attribution:'© <a href="https://opentopomap.org">OpenTopoMap</a>',           maxZoom:17 }),
@@ -801,8 +804,18 @@
     // ── Map controls ──
     document.getElementById('ctrl-in').addEventListener('click', () => map.zoomIn());
     document.getElementById('ctrl-out').addEventListener('click', () => map.zoomOut());
-    document.getElementById('ctrl-locate').addEventListener('click', () =>
-      navigator.geolocation?.getCurrentPosition(p => map.setView([p.coords.latitude, p.coords.longitude], 14)));
+    document.getElementById('ctrl-locate').addEventListener('click', () => {
+      if (!navigator.geolocation) { toast('Geolocation not available'); return; }
+      navigator.geolocation.getCurrentPosition(p => {
+        const ll = [p.coords.latitude, p.coords.longitude];
+        map.setView(ll, 14);
+        if (locationMarker) map.removeLayer(locationMarker);
+        locationMarker = L.circleMarker(ll, {
+          pane: 'locationPane',
+          radius: 8, color: '#fff', weight: 2.5, fillColor: '#2563eb', fillOpacity: 1
+        }).addTo(map);
+      }, () => toast('Could not get location'));
+    });
     document.getElementById('ctrl-fit').addEventListener('click', fitAll);
     document.getElementById('ctrl-fit-heat').addEventListener('click', () => {
       const b = filteredHeatBounds || heatBounds;
