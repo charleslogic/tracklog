@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS tl_activities (
     avg_hr       INT,           -- avg heart rate (bpm); from per-point GPX data or CSV scalar
     max_hr       INT,           -- max heart rate (bpm); from per-point GPX data or CSV scalar
     avg_cad      INT,           -- avg cadence (rpm/spm); from per-point GPX data or CSV scalar
+    location     TEXT,          -- "City, ST" from reverse geocoding at import time
     start_time   TIMESTAMPTZ,
     bbox_s       FLOAT,
     bbox_w       FLOAT,
@@ -36,9 +37,10 @@ CREATE TABLE IF NOT EXISTS tl_activities (
 );
 
 -- Migration: add columns if upgrading an existing installation
-ALTER TABLE tl_activities ADD COLUMN IF NOT EXISTS avg_hr  INT;
-ALTER TABLE tl_activities ADD COLUMN IF NOT EXISTS max_hr  INT;
-ALTER TABLE tl_activities ADD COLUMN IF NOT EXISTS avg_cad INT;
+ALTER TABLE tl_activities ADD COLUMN IF NOT EXISTS avg_hr   INT;
+ALTER TABLE tl_activities ADD COLUMN IF NOT EXISTS max_hr   INT;
+ALTER TABLE tl_activities ADD COLUMN IF NOT EXISTS avg_cad  INT;
+ALTER TABLE tl_activities ADD COLUMN IF NOT EXISTS location TEXT;
 
 CREATE INDEX IF NOT EXISTS tl_act_user_time_idx ON tl_activities(user_id, start_time DESC);
 CREATE INDEX IF NOT EXISTS tl_act_user_type_idx ON tl_activities(user_id, type);

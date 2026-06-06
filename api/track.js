@@ -15,7 +15,7 @@ module.exports = async (req, res) => {
 
     const { data, error } = await serviceClient()
         .from('tl_activities')
-        .select('id, source_id, name, type, distance, total_time, moving_time, elev_gain, elev_loss, avg_speed, max_speed, avg_hr, max_hr, avg_cad, start_time, geo_points')
+        .select('id, source_id, name, type, distance, total_time, moving_time, elev_gain, elev_loss, avg_speed, max_speed, avg_hr, max_hr, avg_cad, location, start_time, geo_points')
         .eq('id', id)
         .eq('user_id', user.id)
         .single();
@@ -38,6 +38,7 @@ module.exports = async (req, res) => {
         avg_hr:      data.avg_hr,
         max_hr:      data.max_hr,
         avg_cad:     data.avg_cad,
+        location:    data.location,
         start_time:  data.start_time,
         latlngs:     data.geo_points || [],
     });

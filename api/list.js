@@ -17,7 +17,7 @@ module.exports = async (req, res) => {
     function buildQuery() {
         let q = serviceClient()
             .from('tl_activities')
-            .select('id, source_id, name, type, distance, total_time, moving_time, elev_gain, elev_loss, avg_speed, max_speed, start_time, bbox_s, bbox_w, bbox_n, bbox_e')
+            .select('id, source_id, name, type, distance, total_time, moving_time, elev_gain, elev_loss, avg_speed, max_speed, location, start_time, bbox_s, bbox_w, bbox_n, bbox_e')
             .eq('user_id', user.id)
             .order('start_time', { ascending: false });
 
@@ -56,6 +56,7 @@ module.exports = async (req, res) => {
         elev_loss:   r.elev_loss,
         avg_speed:   r.avg_speed,
         max_speed:   r.max_speed,
+        location:    r.location,
         start_time:  r.start_time,
         bbox: [r.bbox_s, r.bbox_w, r.bbox_n, r.bbox_e],
     }));

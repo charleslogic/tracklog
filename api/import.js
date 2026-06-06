@@ -35,6 +35,7 @@ module.exports = async (req, res) => {
         avg_hr:      typeof a.avg_hr      === 'number' ? Math.round(a.avg_hr)    : null,
         max_hr:      typeof a.max_hr      === 'number' ? Math.round(a.max_hr)    : null,
         avg_cad:     typeof a.avg_cad     === 'number' ? Math.round(a.avg_cad)   : null,
+        location:    a.location           ? String(a.location).slice(0, 128)     : null,
         start_time:  a.start_time || null,
         bbox_s:      typeof a.bbox_s === 'number' ? +a.bbox_s.toFixed(4) : null,
         bbox_w:      typeof a.bbox_w === 'number' ? +a.bbox_w.toFixed(4) : null,
