@@ -140,7 +140,8 @@
     .track-item.selected { background:var(--bg3); }
     .ti-top { display:flex; align-items:baseline; gap:6px; margin-bottom:2px; }
     .ti-name { font-size:.83rem; font-weight:600; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    .ti-date { font-size:.7rem; color:var(--text2); white-space:nowrap; flex-shrink:0; }
+    .ti-date { font-size:.7rem; color:var(--text2); white-space:nowrap; flex-shrink:0; display:flex; flex-direction:column; align-items:flex-end; gap:1px; }
+    .ti-time { font-size:.65rem; }
     .ti-meta { font-size:.72rem; color:var(--text2); }
     .ti-loc  { font-size:.68rem; color:var(--text2); margin-top:1px; opacity:.8; }
     #no-tracks { color:var(--text2); font-size:.83rem; padding:24px; text-align:center; line-height:1.8; }
@@ -1095,9 +1096,11 @@
       }
       list.innerHTML = sorted.map(t => {
         const color = (typeMeta[t.type]||{}).color||'#888';
-        const date = t.start_time ? new Date(t.start_time).toLocaleDateString([],{month:'short',day:'numeric',year:'numeric'}) : '';
+        const _d = t.start_time ? new Date(t.start_time) : null;
+        const date = _d ? _d.toLocaleDateString([],{month:'short',day:'numeric',year:'numeric'}) : '';
+        const time = _d ? _d.toLocaleTimeString([],{hour:'numeric',minute:'2-digit',hour12:true}) : '';
         return `<div class="track-item" data-id="${esc(t.id)}" style="border-left-color:${color}">
-          <div class="ti-top"><div class="ti-name">${esc(t.name||'Activity')}</div><div class="ti-date">${esc(date)}</div></div>
+          <div class="ti-top"><div class="ti-name">${esc(t.name||'Activity')}</div><div class="ti-date"><span>${esc(date)}</span>${time?`<span class="ti-time">${esc(time)}</span>`:''}</div></div>
           <div class="ti-meta">${esc(cap(t.type||'activity'))} · ${esc(fmtDist(t.distance))} · ${esc(fmtTime(t.total_time))}</div>
           ${t.location ? `<div class="ti-loc">${esc(t.location)}</div>` : ''}
         </div>`;
