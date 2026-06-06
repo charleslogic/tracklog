@@ -23,14 +23,22 @@ CREATE TABLE IF NOT EXISTS tl_activities (
     elev_loss    FLOAT,
     avg_speed    FLOAT,
     max_speed    FLOAT,
+    avg_hr       INT,           -- avg heart rate (bpm); from per-point GPX data or CSV scalar
+    max_hr       INT,           -- max heart rate (bpm); from per-point GPX data or CSV scalar
+    avg_cad      INT,           -- avg cadence (rpm/spm); from per-point GPX data or CSV scalar
     start_time   TIMESTAMPTZ,
     bbox_s       FLOAT,
     bbox_w       FLOAT,
     bbox_n       FLOAT,
     bbox_e       FLOAT,
-    geo_points   JSONB,         -- 50-pt [[lat,lon,ele|null],...]
+    geo_points   JSONB,         -- 50-pt [[lat,lon,ele,hr?,cad?],...] — hr/cad slots only when present
     created_at   TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Migration: add columns if upgrading an existing installation
+ALTER TABLE tl_activities ADD COLUMN IF NOT EXISTS avg_hr  INT;
+ALTER TABLE tl_activities ADD COLUMN IF NOT EXISTS max_hr  INT;
+ALTER TABLE tl_activities ADD COLUMN IF NOT EXISTS avg_cad INT;
 
 CREATE INDEX IF NOT EXISTS tl_act_user_time_idx ON tl_activities(user_id, start_time DESC);
 CREATE INDEX IF NOT EXISTS tl_act_user_type_idx ON tl_activities(user_id, type);

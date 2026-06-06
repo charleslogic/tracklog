@@ -53,7 +53,7 @@ Shared project `nfvxmkknkxysjksyhbek` (same as all CharlesLogic apps). Tables us
 
 Tables:
 - `tl_profiles` — one row per user, `approved` boolean, display_name
-- `tl_activities` — one row per activity, `geo_points JSONB` stores 50-pt `[[lat,lon,ele|null]]`
+- `tl_activities` — one row per activity, `geo_points JSONB` stores 50-pt `[[lat,lon,ele,hr?,cad?]]` (3 slots when no extension data; 5 slots when HR or cadence present). Scalar columns: `avg_hr`, `max_hr`, `avg_cad` (from Strava CSV, used as fallback when per-point data absent)
 - `tl_invites` — email-based invite list
 - `tl_dropbox_tokens` — per-user Dropbox OAuth tokens: `dropbox_account_id`, `access_token`, `refresh_token`, `expires_at`, `folder_path`
 

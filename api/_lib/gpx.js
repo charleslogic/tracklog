@@ -69,15 +69,17 @@ function sourceIdFromFilename(filename) {
     return null;
 }
 
-function findHr(obj) {
-    if (!obj || typeof obj !== 'object') return null;
+function findExtensions(obj, result) {
+    if (!result) result = {};
+    if (!obj || typeof obj !== 'object') return result;
+    if (result.hr != null && result.cad != null) return result;
     for (const k of Object.keys(obj)) {
         const local = k.includes(':') ? k.split(':').pop() : k;
-        if (local === 'hr') { const v = parseInt(obj[k]); return isNaN(v) ? null : v; }
-        const found = findHr(obj[k]);
-        if (found !== null) return found;
+        if (local === 'hr'  && result.hr  == null) { const v = parseInt(obj[k]); if (!isNaN(v) && v > 0) result.hr  = v; }
+        if (local === 'cad' && result.cad == null) { const v = parseInt(obj[k]); if (!isNaN(v) && v > 0) result.cad = v; }
+        findExtensions(obj[k], result);
     }
-    return null;
+    return result;
 }
 
 const XML_PARSER = new XMLParser({
@@ -109,8 +111,10 @@ function parseGpxBuffer(bufferOrString, filename) {
         const time = pt.time ? String(pt.time) : null;
         if (!firstTime && time) firstTime = time;
         if (time) lastTime = time;
-        const hr = pt.extensions ? findHr(pt.extensions) : null;
-        pts.push([lat, lon, isNaN(ele) ? null : ele, ...(hr !== null ? [hr] : [])]);
+        const ext = pt.extensions ? findExtensions(pt.extensions) : {};
+        const hr = (ext.hr != null) ? ext.hr : null;
+        const cad = (ext.cad != null) ? ext.cad : null;
+        pts.push([lat, lon, isNaN(ele) ? null : ele, ...(hr !== null || cad !== null ? [hr, cad] : [])]);
     }
     if (pts.length < 2) return null;
 
