@@ -1096,7 +1096,7 @@
       selectedId = id; lastTrackData = null;
       document.querySelectorAll('.track-item').forEach(el => el.classList.toggle('selected', el.dataset.id===id));
       const poly = trackLayers[id];
-      if (poly) { poly.setStyle({weight:5,opacity:1,color:'#ffffff'}); poly.bringToFront(); map.fitBounds(poly.getBounds(), getMapFitOptions(40,14)); }
+      if (poly) { poly.setStyle({weight:5,opacity:1,color:'#ffffff'}); poly.bringToFront(); map.fitBounds(poly.getBounds(), getMapFitOptions(40,16)); }
       Object.entries(trackLayers).forEach(([tid, p]) => {
         if (tid !== id) { const t=allTracks.find(t=>t.id===tid); p.setStyle({weight:2,opacity:0.15,color:(typeMeta[t?.type]||{}).color||'#888'}); }
       });
