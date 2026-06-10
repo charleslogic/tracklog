@@ -887,10 +887,15 @@
     dragHandle.addEventListener('click', () => setMobilePanelCollapsed(!panel.classList.contains('collapsed')));
     if (window.innerWidth < 768) { panel.classList.add('collapsed'); document.body.classList.add('panel-collapsed'); }
 
+    const panelBody = document.getElementById('panel-body');
+    let tracksScrollTop = 0;
     function switchTab(name) {
+      const current = document.querySelector('.tab-pane.active');
+      if (current && current.id === 'tab-tracks') tracksScrollTop = panelBody.scrollTop;
       document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
       document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.id === 'tab-' + name));
       panel.classList.remove('collapsed');
+      if (name === 'tracks') panelBody.scrollTop = tracksScrollTop;
     }
     document.querySelectorAll('.tab-btn').forEach(btn => btn.addEventListener('click', () => {
       if (window.innerWidth < 768 && btn.classList.contains('active') && !panel.classList.contains('collapsed')) setMobilePanelCollapsed(true);
