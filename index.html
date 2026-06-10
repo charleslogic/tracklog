@@ -568,6 +568,7 @@
           <button class="filter-btn" id="apply-btn">Apply Filter</button>
           <button class="filter-btn secondary" id="loadvisible-btn">Load tracks in view</button>
           <button class="filter-btn secondary" id="loadall-btn">Load all tracks (…)</button>
+          <button class="filter-btn secondary" id="reset-btn">Reset to all tracks</button>
         </div>
         <div class="filter-section">
           <span class="filter-label">Heatmap Intensity</span>
@@ -1294,6 +1295,17 @@
     });
     document.getElementById('loadall-btn').addEventListener('click', async () => {
       if (allTracks.length >= totalCount && totalCount > 0) return;
+      await loadFilter(null,null,true);
+    });
+    document.getElementById('reset-btn').addEventListener('click', async () => {
+      const d = defaultDates();
+      document.getElementById('date-from').value = d.from;
+      document.getElementById('date-to').value = d.to;
+      activeTypes = new Set(Object.keys(typeMeta));
+      document.querySelectorAll('#type-toggles .type-toggle').forEach(btn => {
+        const color = typeMeta[btn.dataset.type].color;
+        btn.classList.add('on'); btn.style.background = color; btn.style.color = '#fff';
+      });
       await loadFilter(null,null,true);
     });
 
