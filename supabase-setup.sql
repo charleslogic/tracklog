@@ -94,6 +94,21 @@ AS $$
     ORDER BY type;
 $$;
 
+-- Returns per-user activity count and estimated total row storage (bytes)
+-- for tl_activities, used by the admin panel's "storage per user" view.
+CREATE OR REPLACE FUNCTION tl_storage_per_user()
+RETURNS TABLE(user_id uuid, activity_count bigint, storage_bytes bigint)
+LANGUAGE sql
+SECURITY DEFINER
+AS $$
+    SELECT
+        user_id,
+        COUNT(*) AS activity_count,
+        SUM(pg_column_size(tl_activities.*))::bigint AS storage_bytes
+    FROM tl_activities
+    GROUP BY user_id;
+$$;
+
 -- ── Row Level Security ─────────────────────────────────────────────────────────
 ALTER TABLE tl_activities ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tl_profiles   ENABLE ROW LEVEL SECURITY;

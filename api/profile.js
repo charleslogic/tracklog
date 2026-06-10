@@ -73,21 +73,31 @@ module.exports = async (req, res) => {
 
     // GET /api/profile?action=list
     if (req.method === 'GET' && req.query.action === 'list') {
-        const [{ data: profiles }, { data: authData }] = await Promise.all([
+        const [{ data: profiles }, { data: authData }, { data: storageRows, error: storageErr }] = await Promise.all([
             serviceClient().from('tl_profiles').select('id, display_name, approved, created_at').order('created_at'),
             serviceClient().auth.admin.listUsers({ perPage: 200 }),
+            serviceClient().rpc('tl_storage_per_user'),
         ]);
+        if (storageErr) console.error('[profile] storage rpc error:', storageErr);
 
         const emailMap = {};
         (authData?.users || []).forEach(u => { emailMap[u.id] = u.email; });
 
-        const users = (profiles || []).map(p => ({
-            user_id:      p.id,
-            display_name: p.display_name,
-            email:        emailMap[p.id] || '',
-            approved:     p.approved,
-            created_at:   p.created_at,
-        }));
+        const storageMap = {};
+        (storageRows || []).forEach(r => { storageMap[r.user_id] = { activity_count: Number(r.activity_count), storage_bytes: Number(r.storage_bytes) }; });
+
+        const users = (profiles || []).map(p => {
+            const stats = storageMap[p.id] || { activity_count: 0, storage_bytes: 0 };
+            return {
+                user_id:        p.id,
+                display_name:   p.display_name,
+                email:          emailMap[p.id] || '',
+                approved:       p.approved,
+                created_at:     p.created_at,
+                activity_count: stats.activity_count,
+                storage_bytes:  stats.storage_bytes,
+            };
+        });
 
         return res.json({ ok: true, users });
     }
