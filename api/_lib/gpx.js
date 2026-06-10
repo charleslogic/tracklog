@@ -50,6 +50,17 @@ function haversineM(lat1, lon1, lat2, lon2) {
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+// Centered moving average over a +/-15 sample window, smoothing GPS altitude noise
+// (typically several meters per sample) before computing elevation gain/loss.
+function smoothElevations(eles) {
+    const half = 15;
+    return eles.map((_, i) => {
+        let sum = 0, count = 0;
+        for (let j = Math.max(0, i - half); j <= Math.min(eles.length - 1, i + half); j++) { sum += eles[j]; count++; }
+        return sum / count;
+    });
+}
+
 function makeSourceId(filename, startTime, firstLat, firstLon) {
     const base = filename.replace(/\.(gpx|tcx)(\.gz)?$/i, '');
     if (/^\d{7,}$/.test(base)) return 'strava_' + base;
@@ -142,13 +153,15 @@ function parseGpxBuffer(bufferOrString, filename) {
         lastKeptIdx = i;
     }
 
-    // Elevation: ignore step-changes smaller than 1 m to suppress GPS altitude noise.
+    // Elevation: smooth GPS altitude noise with a moving average, then ignore
+    // step-changes smaller than 2 m before accumulating gain/loss.
     let elevGain = 0, elevLoss = 0;
     const eles = pts.map(p => p[2]).filter(e => e != null);
-    let lastEle = eles[0];
-    for (let i = 1; i < eles.length; i++) {
-        const d = eles[i] - lastEle;
-        if (Math.abs(d) >= 1) { if (d > 0) elevGain += d; else elevLoss += -d; lastEle = eles[i]; }
+    const smoothedEles = smoothElevations(eles);
+    let lastEle = smoothedEles[0];
+    for (let i = 1; i < smoothedEles.length; i++) {
+        const d = smoothedEles[i] - lastEle;
+        if (Math.abs(d) >= 2) { if (d > 0) elevGain += d; else elevLoss += -d; lastEle = smoothedEles[i]; }
     }
 
     const lats = pts.map(p => p[0]), lons = pts.map(p => p[1]);
@@ -231,13 +244,15 @@ function parseTcxBuffer(bufferOrString, filename) {
     const durSec = totalTimeSec > 0 ? Math.round(totalTimeSec)
         : (firstTime && lastTime ? Math.round((new Date(lastTime) - new Date(firstTime)) / 1000) : null);
 
-    // Elevation: ignore step-changes smaller than 1 m to suppress GPS altitude noise.
+    // Elevation: smooth GPS altitude noise with a moving average, then ignore
+    // step-changes smaller than 2 m before accumulating gain/loss.
     let elevGain = 0, elevLoss = 0;
     const eles = pts.map(p => p[2]).filter(e => e != null);
-    let lastEle = eles[0];
-    for (let i = 1; i < eles.length; i++) {
-        const d = eles[i] - lastEle;
-        if (Math.abs(d) >= 1) { if (d > 0) elevGain += d; else elevLoss += -d; lastEle = eles[i]; }
+    const smoothedEles = smoothElevations(eles);
+    let lastEle = smoothedEles[0];
+    for (let i = 1; i < smoothedEles.length; i++) {
+        const d = smoothedEles[i] - lastEle;
+        if (Math.abs(d) >= 2) { if (d > 0) elevGain += d; else elevLoss += -d; lastEle = smoothedEles[i]; }
     }
 
     const lats = pts.map(p => p[0]), lons = pts.map(p => p[1]);

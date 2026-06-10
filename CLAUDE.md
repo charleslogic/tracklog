@@ -180,6 +180,12 @@ GPX distance is computed from raw GPS coordinates using a **speed-based noise fi
 
 **TCX avoids this entirely** by reading `DistanceMeters` directly from the device. For Apple Watch workouts, export TCX from Garmin Connect or similar if available; HealthFit (as of 2026) only exports GPX, FIT, CSV, or Markdown.
 
+## Elevation Gain/Loss Accuracy
+
+GPS-derived altitude (`<ele>` in GPX, `AltitudeMeters` in TCX) is much noisier than horizontal position — Apple Watch reports vertical accuracy (`vAcc`) of 3–18 m per sample, often larger than the real elevation change between samples. Summing raw deltas wildly overcounts both gain and loss (a flat 2km walk computed ~290 ft of gain *and* 290 ft of loss).
+
+**Fix:** `smoothElevations()` (in both `index.html` and `api/_lib/gpx.js`) applies a centered moving average over a ±15 sample window (~30s at 1Hz) before accumulating gain/loss, with the step-change threshold raised from 1 m to 2 m. For the same 2km walk this brings gain/loss down to ~67 ft / ~60 ft, much closer to the actual ~60 ft profile. If you change the window or threshold, mirror the change in both files.
+
 ## Type Normalization
 
 All activity type strings are lowercased and stripped of whitespace/hyphens before lookup in `TYPE_MAP` (defined in both `index.html` and `api/_lib/gpx.js`). Unknown types pass through as-is and get a palette color. To normalize a new variant (e.g. "cycling" → "ride"), add it to both TYPE_MAPs and re-import.
