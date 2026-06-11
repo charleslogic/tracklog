@@ -7,6 +7,8 @@ GPS activity viewer. Imports activities from local file exports (Strava bulk dow
 Commit changes → push to GitHub → Vercel auto-deploys via GitHub integration.
 Do **not** use `vercel --prod` directly.
 
+A scheduled GitHub Action (`.github/workflows/keep-alive.yml`) pings the Supabase REST API every 3 days so the shared free-tier Supabase project doesn't auto-pause after 7 days of inactivity. Requires a `SUPABASE_ANON_KEY` repo secret.
+
 ## Architecture
 
 Static HTML + Vercel serverless API functions. No build step. Same pattern as TrailView.
