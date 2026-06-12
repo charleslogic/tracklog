@@ -28,6 +28,19 @@ function mapType(raw) {
     return TYPE_MAP[key] || String(raw).toLowerCase();
 }
 
+// HealthFit/WorkOutDoors export filenames encode the workout type the user picked,
+// e.g. "2026-06-11_090523_Outdoor_Walking_Workout.gpx" — a far more reliable signal
+// than pace-based inference, which can misclassify a slow run as a walk or a
+// frequently-paused walk as "activity".
+function typeFromFilename(filename) {
+    const base = filename.replace(/\.(gpx|tcx)(\.gz)?$/i, '');
+    for (const word of base.split(/[\s_-]+/)) {
+        const mapped = TYPE_MAP[word.toLowerCase()];
+        if (mapped) return mapped;
+    }
+    return null;
+}
+
 function inferType(distM, durSec, elevGainM) {
     if (!distM || distM < 100 || !durSec || durSec < 60) return 'activity';
     const kph = (distM / 1000) / (durSec / 3600);
@@ -280,4 +293,4 @@ function parseTcxBuffer(bufferOrString, filename) {
     };
 }
 
-module.exports = { parseGpxBuffer, parseTcxBuffer, sourceIdFromFilename, inferType, mapType };
+module.exports = { parseGpxBuffer, parseTcxBuffer, sourceIdFromFilename, inferType, mapType, typeFromFilename };

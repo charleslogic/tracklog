@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 const { verifyUser } = require('./_lib/auth');
 const { serviceClient } = require('./_lib/supabase');
-const { parseGpxBuffer, parseTcxBuffer, sourceIdFromFilename, inferType } = require('./_lib/gpx');
+const { parseGpxBuffer, parseTcxBuffer, sourceIdFromFilename, inferType, typeFromFilename } = require('./_lib/gpx');
 
 const APP_KEY    = process.env.DROPBOX_APP_KEY;
 const APP_SECRET = process.env.DROPBOX_APP_SECRET;
@@ -140,7 +140,7 @@ async function syncForUser(userId) {
             if (!parsed) continue;
 
             parsed.source = 'dropbox';
-            parsed.type = parsed._sport || inferType(parsed._d, parsed._t, parsed._g);
+            parsed.type = parsed._sport || typeFromFilename(entry.name) || inferType(parsed._d, parsed._t, parsed._g);
             delete parsed._d; delete parsed._t; delete parsed._g; delete parsed._sport;
 
             const record = {

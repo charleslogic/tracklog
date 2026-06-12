@@ -1346,6 +1346,18 @@
       if (kph < 13) return 'run';
       return 'ride';
     }
+    // HealthFit/WorkOutDoors export filenames encode the workout type the user picked,
+    // e.g. "2026-06-11_090523_Outdoor_Walking_Workout.gpx" — a far more reliable signal
+    // than pace-based inference, which can misclassify a slow run as a walk or a
+    // frequently-paused walk as "activity".
+    function typeFromFilename(filename) {
+      const base = filename.replace(/\.(gpx|tcx)(\.gz)?$/i, '');
+      for (const word of base.split(/[\s_-]+/)) {
+        const mapped = TYPE_MAP[word.toLowerCase()];
+        if (mapped) return mapped;
+      }
+      return null;
+    }
 
     // ── GPX pipeline helpers ──
     function decimate(pts, max) {
@@ -1678,7 +1690,7 @@
               if (meta.max_hr != null) parsed.max_hr=meta.max_hr;
               if (meta.avg_cad != null) parsed.avg_cad=meta.avg_cad;
             } else {
-              parsed.type=parsed.type||inferType(parsed._d,parsed._t,parsed._g);
+              parsed.type=parsed.type||typeFromFilename(file.name)||inferType(parsed._d,parsed._t,parsed._g);
               parsed.source=file.name.toLowerCase().startsWith('route_')?'apple_health':(isTcx?'tcx':'gpx');
             }
             delete parsed._d; delete parsed._t; delete parsed._g;
