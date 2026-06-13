@@ -8,7 +8,8 @@
 // is a real drift signal. See scripts/README.md.
 //
 // Usage:
-//   node scripts/compare-accounts.js <prodEmailOrId> <testEmailOrId> [--out <path>]
+//   node scripts/compare-accounts.js <prodEmailOrId> <testEmailOrId> [--out <path>] [--summary-only]
+//   --summary-only prints the counts only and skips writing the JSON report.
 // Requires env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 //
 // Exit code: 0 if no HARD diffs and no orphans; 1 if any; 2 on usage/config error.
@@ -123,12 +124,13 @@ async function run() {
     if (!SUPABASE_URL || !SERVICE_KEY) die('Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY env vars before running.');
 
     const argv = process.argv.slice(2);
-    let outPath = null; const positional = [];
+    let outPath = null, summaryOnly = false; const positional = [];
     for (let i = 0; i < argv.length; i++) {
         if (argv[i] === '--out') outPath = argv[++i];
+        else if (argv[i] === '--summary-only') summaryOnly = true;
         else positional.push(argv[i]);
     }
-    if (positional.length !== 2) die('Usage: node scripts/compare-accounts.js <prodEmailOrId> <testEmailOrId> [--out <path>]');
+    if (positional.length !== 2) die('Usage: node scripts/compare-accounts.js <prodEmailOrId> <testEmailOrId> [--out <path>] [--summary-only]');
     const [refA, refB] = positional;
 
     const { createClient } = require('@supabase/supabase-js');
@@ -206,11 +208,15 @@ async function run() {
     if (onlyB.length) { console.log(line); console.log(`Only in B (first 20):`); cap(onlyB, 20).forEach(s => console.log('  ' + s)); }
 
     // ── JSON report ──
-    const ts = report.generated_at.replace(/[:.]/g, '-');
-    const file = outPath || `compare-report-${ts}.json`;
-    fs.writeFileSync(file, JSON.stringify(report, null, 2));
     console.log(line);
-    console.log(`Full report written to: ${file}`);
+    if (summaryOnly) {
+        console.log('(--summary-only: no report file written)');
+    } else {
+        const ts = report.generated_at.replace(/[:.]/g, '-');
+        const file = outPath || `compare-report-${ts}.json`;
+        fs.writeFileSync(file, JSON.stringify(report, null, 2));
+        console.log(`Full report written to: ${file}`);
+    }
     console.log(hasHardDrift ? 'RESULT: drift detected (exit 1)' : 'RESULT: accounts match (exit 0)');
 
     process.exit(hasHardDrift ? 1 : 0);

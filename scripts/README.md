@@ -36,13 +36,20 @@ export SUPABASE_SERVICE_ROLE_KEY="<service role key>"
 ### Usage
 
 ```
-node scripts/compare-accounts.js <prodEmailOrId> <testEmailOrId> [--out <path>]
+node scripts/compare-accounts.js <prodEmailOrId> <testEmailOrId> [--out <path>] [--summary-only]
 ```
 
 - Each account arg is an **email** (resolved to a user id) or a raw **user UUID**.
 - Writes a full `compare-report-<timestamp>.json` (override with `--out`).
+- `--summary-only` prints just the counts and skips writing the JSON — handy for
+  quick re-check loops where you don't need the full diff detail.
 - Exit code `0` = accounts match (no HARD diffs, no orphans); `1` = drift detected;
   `2` = usage/config error.
+
+Via the PowerShell wrapper, add `-SummaryOnly`:
+```powershell
+.\run-compare.ps1 prod@example.com test@example.com -SummaryOnly
+```
 
 ### What it compares
 

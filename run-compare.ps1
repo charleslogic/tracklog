@@ -14,7 +14,8 @@
 
 param(
     [Parameter(Mandatory = $true)][string]$AccountA,
-    [Parameter(Mandatory = $true)][string]$AccountB
+    [Parameter(Mandatory = $true)][string]$AccountB,
+    [switch]$SummaryOnly
 )
 
 Write-Host "Copy your Supabase service_role key to the clipboard, then press Enter."
@@ -33,9 +34,12 @@ $env:SUPABASE_SERVICE_ROLE_KEY = $key
 
 # Run from the repo root (this script's folder) so the report lands here and is
 # covered by the compare-report-*.json .gitignore rule.
+$extra = @()
+if ($SummaryOnly) { $extra += "--summary-only" }
+
 Push-Location $PSScriptRoot
 try {
-    node "scripts\compare-accounts.js" $AccountA $AccountB
+    node "scripts\compare-accounts.js" $AccountA $AccountB @extra
 }
 finally {
     Pop-Location
