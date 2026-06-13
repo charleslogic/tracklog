@@ -116,8 +116,10 @@ const cap = (arr, n) => arr.length > n ? arr.slice(0, n).concat([`…(+${arr.len
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 async function run() {
-    const SUPABASE_URL = process.env.SUPABASE_URL;
-    const SERVICE_KEY  = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    // Trim to guard against a stray newline/space from how the key was supplied —
+    // an invalid character in the key produces undici "invalid Authorization header".
+    const SUPABASE_URL = (process.env.SUPABASE_URL || '').trim();
+    const SERVICE_KEY  = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
     if (!SUPABASE_URL || !SERVICE_KEY) die('Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY env vars before running.');
 
     const argv = process.argv.slice(2);
