@@ -109,7 +109,7 @@ function findExtensions(obj, result) {
 const XML_PARSER = new XMLParser({
     ignoreAttributes: false,
     attributeNamePrefix: '@_',
-    isArray: (name) => name === 'trkpt' || name === 'trkseg' || name === 'trk' || name === 'Lap' || name === 'Trackpoint',
+    isArray: (name) => name === 'trkpt' || name === 'trkseg' || name === 'trk' || name === 'Lap' || name === 'Track' || name === 'Trackpoint',
     parseAttributeValue: true,
     parseTagValue: true,
 });
@@ -127,7 +127,7 @@ function parseGpxBuffer(bufferOrString, filename) {
     const trkpts = trksegs.flatMap(s => [].concat(s.trkpt || []));
     if (trkpts.length < 2) return null;
 
-    const pts = []; const times = []; let firstTime = null, lastTime = null;
+    const pts = []; const times = []; let firstTime = null, lastTime = null; let hasExt = false;
     for (const pt of trkpts) {
         const lat = parseFloat(pt['@_lat']), lon = parseFloat(pt['@_lon']);
         if (isNaN(lat) || isNaN(lon)) continue;
@@ -138,10 +138,13 @@ function parseGpxBuffer(bufferOrString, filename) {
         const ext = pt.extensions ? findExtensions(pt.extensions) : {};
         const hr = (ext.hr != null) ? ext.hr : null;
         const cad = (ext.cad != null) ? ext.cad : null;
-        pts.push([lat, lon, isNaN(ele) ? null : ele, ...(hr !== null || cad !== null ? [hr, cad] : [])]);
+        if (hr !== null || cad !== null) hasExt = true;
+        pts.push([lat, lon, isNaN(ele) ? null : ele, hr, cad]);
         times.push(time ? Date.parse(time) : null);
     }
     if (pts.length < 2) return null;
+    // Keep geo_points uniform: 5 slots when any point has HR/cadence, else trim to 3.
+    if (!hasExt) for (const p of pts) p.length = 3;
 
     const metaName = gpx.metadata?.name;
     const trkName = trks[0]?.name;
@@ -171,7 +174,7 @@ function parseGpxBuffer(bufferOrString, filename) {
     let elevGain = 0, elevLoss = 0;
     const eles = pts.map(p => p[2]).filter(e => e != null);
     const smoothedEles = smoothElevations(eles);
-    let lastEle = smoothedEles[0];
+    let lastEle = smoothedEles.length ? smoothedEles[0] : 0;
     for (let i = 1; i < smoothedEles.length; i++) {
         const d = smoothedEles[i] - lastEle;
         if (Math.abs(d) >= 2) { if (d > 0) elevGain += d; else elevLoss += -d; lastEle = smoothedEles[i]; }
@@ -233,11 +236,12 @@ function parseTcxBuffer(bufferOrString, filename) {
         if (cad > 0) { sumCad += cad; cadCount++; }
     }
 
-    // Collect all trackpoints across all laps
-    const allTrkpts = laps.flatMap(lap => [].concat((lap.Track || {}).Trackpoint || []));
+    // Collect all trackpoints across all laps. A lap may contain multiple <Track>
+    // segments (pause/resume), so flatten Track -> Trackpoint rather than assuming one.
+    const allTrkpts = laps.flatMap(lap => [].concat(lap.Track || []).flatMap(tr => [].concat(tr.Trackpoint || [])));
     if (allTrkpts.length < 2) return null;
 
-    const pts = []; const times = []; let firstTime = null, lastTime = null;
+    const pts = []; let firstTime = null, lastTime = null; let hasExt = false;
     for (const tp of allTrkpts) {
         const pos = tp.Position || {};
         const lat = typeof pos.LatitudeDegrees === 'number' ? pos.LatitudeDegrees : parseFloat(pos.LatitudeDegrees);
@@ -247,12 +251,15 @@ function parseTcxBuffer(bufferOrString, filename) {
         const time = tp.Time ? String(tp.Time) : null;
         if (!firstTime && time) firstTime = time;
         if (time) lastTime = time;
-        const hr = tp.HeartRateBpm?.Value || null;
-        const cad = tp.Cadence || null;
-        pts.push([lat, lon, isNaN(ele) ? null : ele, ...(hr !== null || cad !== null ? [hr, cad] : [])]);
-        times.push(time ? Date.parse(time) : null);
+        const hrRaw = tp.HeartRateBpm?.Value, cadRaw = tp.Cadence;
+        const hr = (typeof hrRaw === 'number' && hrRaw > 0) ? hrRaw : null;
+        const cad = (typeof cadRaw === 'number' && cadRaw > 0) ? cadRaw : null;
+        if (hr !== null || cad !== null) hasExt = true;
+        pts.push([lat, lon, isNaN(ele) ? null : ele, hr, cad]);
     }
     if (pts.length < 2) return null;
+    // Keep geo_points uniform: 5 slots when any point has HR/cadence, else trim to 3.
+    if (!hasExt) for (const p of pts) p.length = 3;
 
     const durSec = totalTimeSec > 0 ? Math.round(totalTimeSec)
         : (firstTime && lastTime ? Math.round((new Date(lastTime) - new Date(firstTime)) / 1000) : null);
@@ -262,7 +269,7 @@ function parseTcxBuffer(bufferOrString, filename) {
     let elevGain = 0, elevLoss = 0;
     const eles = pts.map(p => p[2]).filter(e => e != null);
     const smoothedEles = smoothElevations(eles);
-    let lastEle = smoothedEles[0];
+    let lastEle = smoothedEles.length ? smoothedEles[0] : 0;
     for (let i = 1; i < smoothedEles.length; i++) {
         const d = smoothedEles[i] - lastEle;
         if (Math.abs(d) >= 2) { if (d > 0) elevGain += d; else elevLoss += -d; lastEle = smoothedEles[i]; }

@@ -1049,7 +1049,7 @@
     function defaultDates() { const to=new Date(),from=new Date(); from.setFullYear(from.getFullYear()-1); return {from:from.toISOString().slice(0,10),to:to.toISOString().slice(0,10)}; }
     (() => { const d=defaultDates(); document.getElementById('date-from').value=d.from; document.getElementById('date-to').value=d.to; })();
 
-    async function loadTracks(from, to, all=false, bbox=null) {
+    async function loadTracks(from, to, all=false, bbox=null, seq=null) {
       let url = '/api/list';
       if (bbox) url += '?bbox='+bbox;
       else if (all) url += '?all=1';
@@ -1058,6 +1058,7 @@
       const r = await apiFetch(url);
       if (!r.ok) throw new Error('/api/list '+r.status);
       const data = await r.json();
+      if (seq !== null && seq !== loadFilterSeq) return { count: 0, total: 0 }; // superseded by a newer filter
       allTracks = data.tracks || []; totalCount = data.total_count || allTracks.length;
       updateLoadAllBtn(); renderTrackList();
       return { count: allTracks.length, total: totalCount };
@@ -1068,7 +1069,7 @@
       if (startMarker) { map.removeLayer(startMarker); startMarker = null; }
       selectedId = null; lastTrackData = null;
     }
-    async function loadPolylines(from, to, all=false, bbox=null) {
+    async function loadPolylines(from, to, all=false, bbox=null, seq=null) {
       let url = '/api/latlngs';
       if (bbox) url += '?bbox='+bbox;
       else if (all) url += '?all=1';
@@ -1077,14 +1078,18 @@
       const r = await apiFetch(url);
       if (!r.ok) throw new Error('/api/latlngs '+r.status);
       const data = await r.json();
+      if (seq !== null && seq !== loadFilterSeq) return; // superseded by a newer filter
       renderPolylinesFromGeo(data.tracks || []);
     }
+    let loadFilterSeq = 0;
     async function loadFilter(from, to, all=false, bbox=null) {
+      const seq = ++loadFilterSeq;
       clearPolylines(); allTracks = []; renderTrackList();
       try {
-        await Promise.all([loadTracks(from,to,all,bbox), loadPolylines(from,to,all,bbox)]);
+        await Promise.all([loadTracks(from,to,all,bbox,seq), loadPolylines(from,to,all,bbox,seq)]);
+        if (seq !== loadFilterSeq) return;
         applyVisibility();
-      } catch(e) { toast('Failed to load tracks'); console.error(e); }
+      } catch(e) { if (seq === loadFilterSeq) { toast('Failed to load tracks'); console.error(e); } }
     }
     function renderPolylinesFromGeo(geoTracks) {
       geoTracks.forEach(t => {
@@ -1421,7 +1426,7 @@
       try { doc = new DOMParser().parseFromString(xmlText,'application/xml'); } catch(e) { return null; }
       const trkpts = doc.querySelectorAll('trkpt');
       if (!trkpts.length) return null;
-      const pts = []; const times = []; let firstTime=null, lastTime=null;
+      const pts = []; const times = []; let firstTime=null, lastTime=null; let hasExt=false;
       trkpts.forEach(pt => {
         const lat=parseFloat(pt.getAttribute('lat')), lon=parseFloat(pt.getAttribute('lon'));
         const ele=parseFloat(pt.querySelector('ele')?.textContent||'');
@@ -1435,10 +1440,13 @@
           if (el.localName==='hr'&&hr===null){const v=parseInt(el.textContent);if(!isNaN(v)&&v>0)hr=v;}
           if (el.localName==='cad'&&cad===null){const v=parseInt(el.textContent);if(!isNaN(v)&&v>0)cad=v;}
         }}
-        pts.push([lat,lon,isNaN(ele)?null:ele,...(hr!==null||cad!==null?[hr,cad]:[])]);
+        if (hr!==null||cad!==null) hasExt=true;
+        pts.push([lat,lon,isNaN(ele)?null:ele,hr,cad]);
         times.push(time ? Date.parse(time) : null);
       });
       if (pts.length < 2) return null;
+      // Keep geo_points uniform: 5 slots when any point has HR/cadence, else trim to 3.
+      if (!hasExt) for (const p of pts) p.length = 3;
       const name = doc.querySelector('trk name')?.textContent?.trim() || doc.querySelector('metadata name')?.textContent?.trim() || null;
       const startTime = firstTime || doc.querySelector('metadata time')?.textContent?.trim() || null;
       const durSec = (firstTime&&lastTime) ? Math.round((new Date(lastTime)-new Date(firstTime))/1000) : null;
@@ -1509,7 +1517,7 @@
       });
 
       // Trackpoints for GPS track, elevation, bbox
-      const pts=[]; let firstTime=null, lastTime=null;
+      const pts=[]; let firstTime=null, lastTime=null; let hasExt=false;
       activity.querySelectorAll('Trackpoint').forEach(tp => {
         const lat=parseFloat(tp.querySelector('LatitudeDegrees')?.textContent||'');
         const lon=parseFloat(tp.querySelector('LongitudeDegrees')?.textContent||'');
@@ -1521,9 +1529,12 @@
         if (!firstTime&&time) firstTime=time;
         if (time) lastTime=time;
         const hasHr=!isNaN(hr)&&hr>0, hasCad=!isNaN(cad)&&cad>0;
-        pts.push([lat,lon,isNaN(ele)?null:ele,...(hasHr||hasCad?[hasHr?hr:null,hasCad?cad:null]:[])]);
+        if (hasHr||hasCad) hasExt=true;
+        pts.push([lat,lon,isNaN(ele)?null:ele,hasHr?hr:null,hasCad?cad:null]);
       });
       if (pts.length < 2) return null;
+      // Keep geo_points uniform: 5 slots when any point has HR/cadence, else trim to 3.
+      if (!hasExt) for (const p of pts) p.length = 3;
 
       const durSec = totalTimeSec>0 ? Math.round(totalTimeSec) : (firstTime&&lastTime ? Math.round((new Date(lastTime)-new Date(firstTime))/1000) : null);
       // Smooth GPS altitude noise with a moving average, then ignore step-changes
@@ -1588,25 +1599,21 @@
     let _geoLastFetch = 0;
     async function geocodeLatLon(lat, lon) {
       const key = `${Math.round(lat * 10) / 10}_${Math.round(lon * 10) / 10}`;
-      if (key in _geoCache) { console.log('[geo] cache hit', key, '->', _geoCache[key]); return _geoCache[key]; }
+      if (key in _geoCache) return _geoCache[key];
       const wait = Math.max(0, 1100 - (Date.now() - _geoLastFetch));
       if (wait > 0) await new Promise(r => setTimeout(r, wait));
       _geoLastFetch = Date.now();
       const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}&format=json&zoom=10`;
-      console.log('[geo] fetching', url);
       try {
         const r = await fetch(url);
-        console.log('[geo] status', r.status);
         if (!r.ok) { _geoCache[key] = null; return null; }
         const d = await r.json();
-        console.log('[geo] raw address', d.address);
         const a = d.address || {};
         const city = a.city || a.town || a.village || a.county || '';
         const stCode = (a['ISO3166-2-lvl4'] || '').split('-').pop() || a.state || '';
         const loc = [city, stCode].filter(Boolean).join(', ') || null;
-        console.log('[geo] result', loc);
         _geoCache[key] = loc; return loc;
-      } catch(e) { console.error('[geo] error', e); _geoCache[key] = null; return null; }
+      } catch(e) { _geoCache[key] = null; return null; }
     }
 
     async function* walkDir(dir) {
@@ -1652,7 +1659,7 @@
       for await (const handle of walkDir(dirHandle)) {
         const n=handle.name.toLowerCase();
         if (n==='activities.csv') { try { csvText=await(await handle.getFile()).text(); } catch(e){} }
-        else if (n.endsWith('.gpx')) gpxFiles.push(await handle.getFile());
+        else if (n.endsWith('.gpx')||n.endsWith('.tcx')) gpxFiles.push(await handle.getFile());
         else if (n.endsWith('.gz')) gzFiles.push(await handle.getFile());
       }
       await processFiles([...gpxFiles,...gzFiles], csvText);
@@ -1667,7 +1674,7 @@
       for (const file of fileList) {
         const n=file.name.toLowerCase();
         if (n==='activities.csv') { try { csvText=await file.text(); } catch(e){} }
-        else if (n.endsWith('.gpx')) gpxFiles.push(file);
+        else if (n.endsWith('.gpx')||n.endsWith('.tcx')) gpxFiles.push(file);
         else if (n.endsWith('.gz')) gzFiles.push(file);
       }
       await processFiles([...gpxFiles,...gzFiles], csvText);
@@ -1723,7 +1730,6 @@
             if (parsed.source_id && seenSourceIds.has(parsed.source_id)) { totalSkipped++; continue; }
             if (parsed.source_id) seenSourceIds.add(parsed.source_id);
             const pt0 = parsed.geo_points?.[0];
-            console.log('[geo] pt0', pt0, 'geo_points length', parsed.geo_points?.length);
             if (pt0) parsed.location = await geocodeLatLon(pt0[0], pt0[1]);
             batch.push(parsed);
 

@@ -20,7 +20,8 @@ module.exports = async (req, res) => {
             .select('id, type, start_time, bbox_s, bbox_w, bbox_n, bbox_e, geo_points')
             .eq('user_id', user.id)
             .not('geo_points', 'is', null)
-            .order('start_time', { ascending: false });
+            .order('start_time', { ascending: false })
+            .order('id', { ascending: false }); // stable tiebreak so offset paging can't drop/dup rows
 
         if (bbox) {
             const [minLat, minLon, maxLat, maxLon] = bbox.split(',').map(Number);

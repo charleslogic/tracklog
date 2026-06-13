@@ -8,20 +8,16 @@ module.exports = async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     if (req.method === 'OPTIONS') return res.status(204).end();
 
-    // GET /api/profile?action=check-email — unauthenticated pre-login check
+    // GET /api/profile?action=check-email — unauthenticated pre-login check.
+    // Single indexed lookup via the tl_check_email RPC (service-role only) instead
+    // of scanning auth.admin.listUsers({ perPage: 1000 }) on every request.
     if (req.method === 'GET' && req.query.action === 'check-email') {
         const email = (req.query.email || '').toLowerCase().trim();
         if (!email) return res.status(400).json({ ok: false, error: 'email required' });
 
-        const [{ data: authData }, { data: invite }] = await Promise.all([
-            serviceClient().auth.admin.listUsers({ perPage: 1000 }),
-            serviceClient().from('tl_invites').select('id').eq('email', email).is('used_by', null).maybeSingle(),
-        ]);
-
-        const existing = (authData?.users || []).some(u => u.email?.toLowerCase() === email);
-        if (existing) return res.json({ ok: true, status: 'existing' });
-        if (invite) return res.json({ ok: true, status: 'invited' });
-        return res.json({ ok: true, status: 'unknown' });
+        const { data: status, error } = await serviceClient().rpc('tl_check_email', { p_email: email });
+        if (error) { console.error('[profile] check-email rpc error:', error); return res.status(500).json({ ok: false, error: 'db_error' }); }
+        return res.json({ ok: true, status: status || 'unknown' });
     }
 
     const user = await verifyUser(req);
@@ -75,7 +71,7 @@ module.exports = async (req, res) => {
     if (req.method === 'GET' && req.query.action === 'list') {
         const [{ data: profiles }, { data: authData }, { data: storageRows, error: storageErr }] = await Promise.all([
             serviceClient().from('tl_profiles').select('id, display_name, approved, created_at').order('created_at'),
-            serviceClient().auth.admin.listUsers({ perPage: 200 }),
+            serviceClient().auth.admin.listUsers({ perPage: 1000 }),
             serviceClient().rpc('tl_storage_per_user'),
         ]);
         if (storageErr) console.error('[profile] storage rpc error:', storageErr);

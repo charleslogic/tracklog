@@ -19,7 +19,8 @@ module.exports = async (req, res) => {
             .from('tl_activities')
             .select('id, source_id, name, type, distance, total_time, moving_time, elev_gain, elev_loss, avg_speed, max_speed, location, start_time, bbox_s, bbox_w, bbox_n, bbox_e')
             .eq('user_id', user.id)
-            .order('start_time', { ascending: false });
+            .order('start_time', { ascending: false })
+            .order('id', { ascending: false }); // stable tiebreak so offset paging can't drop/dup rows
 
         if (bbox) {
             const [minLat, minLon, maxLat, maxLon] = bbox.split(',').map(Number);

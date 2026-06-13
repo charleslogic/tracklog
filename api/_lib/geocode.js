@@ -3,9 +3,13 @@
 // activities get a "City, ST" location like manually-imported ones.
 const _geoCache = {};
 let _geoLastFetch = 0;
+// Serialize every lookup through one promise chain. A webhook can sync several
+// users concurrently (Promise.all), and a shared _geoLastFetch timestamp alone
+// races — two callers read the same value and fire together, breaching Nominatim's
+// 1 req/sec policy. Chaining guarantees one in-flight request at a time.
+let _geoQueue = Promise.resolve();
 
-async function geocodeLatLon(lat, lon) {
-    const key = `${Math.round(lat * 10) / 10}_${Math.round(lon * 10) / 10}`;
+async function _fetchGeo(key, lat, lon) {
     if (key in _geoCache) return _geoCache[key];
 
     const wait = Math.max(0, 1100 - (Date.now() - _geoLastFetch));
@@ -27,6 +31,14 @@ async function geocodeLatLon(lat, lon) {
         _geoCache[key] = null;
         return null;
     }
+}
+
+async function geocodeLatLon(lat, lon) {
+    const key = `${Math.round(lat * 10) / 10}_${Math.round(lon * 10) / 10}`;
+    if (key in _geoCache) return _geoCache[key];
+    const run = _geoQueue.then(() => _fetchGeo(key, lat, lon));
+    _geoQueue = run.then(() => {}, () => {}); // keep the chain alive regardless of outcome
+    return run;
 }
 
 module.exports = { geocodeLatLon };

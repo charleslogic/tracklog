@@ -16,6 +16,12 @@ function hmacSha256Hex(data, secret) {
     return crypto.createHmac('sha256', secret).update(data).digest('hex');
 }
 
+// Constant-time comparison of two hex digests to avoid leaking byte-match timing.
+function timingSafeHexEqual(a, b) {
+    if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false;
+    return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
+}
+
 function signState(uid) {
     const payload = Buffer.from(JSON.stringify({ uid, ts: Date.now() })).toString('base64url');
     const sig = hmacSha256Hex(payload, APP_SECRET);
@@ -26,7 +32,7 @@ function verifyState(state) {
     const dot = state.lastIndexOf('.');
     if (dot < 0) return null;
     const payload = state.slice(0, dot), sig = state.slice(dot + 1);
-    if (hmacSha256Hex(payload, APP_SECRET) !== sig) return null;
+    if (!timingSafeHexEqual(hmacSha256Hex(payload, APP_SECRET), sig)) return null;
     try {
         const { uid, ts } = JSON.parse(Buffer.from(payload, 'base64url').toString());
         if (Date.now() - ts > 10 * 60 * 1000) return null; // 10 min window
@@ -184,9 +190,6 @@ async function syncForUser(userId) {
     return { imported };
 }
 
-// Disable Vercel's automatic body parsing so we can read the raw bytes for HMAC verification.
-module.exports.config = { api: { bodyParser: false } };
-
 function readRawBody(req) {
     return new Promise((resolve, reject) => {
         const chunks = [];
@@ -300,7 +303,7 @@ module.exports = async (req, res) => {
         // Verify HMAC signature against the raw body bytes
         const sig = req.headers['x-dropbox-signature'];
         const expected = hmacSha256Hex(rawBodyStr, APP_SECRET);
-        if (!sig || sig !== expected) return res.status(403).json({ ok: false });
+        if (!timingSafeHexEqual(expected, sig)) return res.status(403).json({ ok: false });
 
         // Sync all notified accounts before responding — Vercel terminates the function
         // after the response is sent, so fire-and-forget doesn't work here.
@@ -322,3 +325,8 @@ module.exports = async (req, res) => {
     res.setHeader('Content-Type', 'application/json');
     return res.status(405).json({ ok: false, error: 'Method not allowed' });
 };
+
+// Disable Vercel's automatic body parsing so we can read the raw bytes for HMAC
+// verification. Must be set AFTER the handler is assigned to module.exports above —
+// otherwise the reassignment discards this property and bodyParser stays enabled.
+module.exports.config = { api: { bodyParser: false } };
