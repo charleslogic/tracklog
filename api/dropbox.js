@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const { verifyUser } = require('./_lib/auth');
 const { serviceClient } = require('./_lib/supabase');
 const { parseGpxBuffer, parseTcxBuffer, sourceIdFromFilename, inferType, typeFromFilename } = require('./_lib/gpx');
+const { geocodeLatLon } = require('./_lib/geocode');
 
 const APP_KEY    = process.env.DROPBOX_APP_KEY;
 const APP_SECRET = process.env.DROPBOX_APP_SECRET;
@@ -143,6 +144,9 @@ async function syncForUser(userId) {
             parsed.type = parsed._sport || typeFromFilename(entry.name) || inferType(parsed._d, parsed._t, parsed._g);
             delete parsed._d; delete parsed._t; delete parsed._g; delete parsed._sport;
 
+            const pt0 = Array.isArray(parsed.geo_points) ? parsed.geo_points[0] : null;
+            const location = pt0 ? await geocodeLatLon(pt0[0], pt0[1]) : null;
+
             const record = {
                 user_id:     userId,
                 source:      parsed.source,
@@ -162,6 +166,7 @@ async function syncForUser(userId) {
                 bbox_n:      typeof parsed.bbox_n === 'number' ? +parsed.bbox_n.toFixed(4) : null,
                 bbox_e:      typeof parsed.bbox_e === 'number' ? +parsed.bbox_e.toFixed(4) : null,
                 geo_points:  Array.isArray(parsed.geo_points) ? parsed.geo_points : null,
+                location,
             };
 
             if (record.source_id) {
