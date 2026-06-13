@@ -117,6 +117,7 @@
     .heat-intensity-row { display:flex; align-items:center; gap:8px; margin-top:4px; }
     .heat-lbl { font-size:.7rem; color:var(--text2); white-space:nowrap; flex-shrink:0; }
     #heat-intensity { flex:1; accent-color:var(--accent); cursor:pointer; }
+    #track-intensity { flex:1; accent-color:var(--accent); cursor:pointer; }
     #heat-popup { display:none; position:fixed; left:54px; z-index:801; bottom:calc(50vh + 10px); background:var(--bg); border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow); padding:8px 12px; white-space:nowrap; }
     #heat-popup.show { display:flex; align-items:center; gap:8px; }
     @media (min-width:768px) { #heat-popup { bottom:16px; } }
@@ -581,6 +582,14 @@
             <span class="heat-lbl">More</span>
           </div>
         </div>
+        <div class="filter-section">
+          <span class="filter-label">Track Intensity</span>
+          <div class="heat-intensity-row">
+            <span class="heat-lbl">Less</span>
+            <input type="range" id="track-intensity" min="1" max="10" step="1" value="7">
+            <span class="heat-lbl">More</span>
+          </div>
+        </div>
       </div>
       <div class="tab-pane" id="tab-tracks">
         <div id="sort-bar">
@@ -928,6 +937,7 @@
     let lastTrackData = null, sortKey = 'date', sortDir = 'desc';
     let heatVisible = true, heatBounds = null, filteredHeatBounds = null;
     let heatIntensity = parseInt(storageGet('tl-heat-intensity') || '5');
+    let trackIntensity = parseInt(storageGet('tl-track-intensity') || '7');
     let firstLoad = true;
 
     // ── Heatmap ──
@@ -952,6 +962,22 @@
       slider.value = heatIntensity; popup.value = heatIntensity;
       slider.addEventListener('input', function() { updateHeatIntensity(parseInt(this.value)); });
       popup.addEventListener('input', function() { updateHeatIntensity(parseInt(this.value)); });
+    })();
+
+    // ── Track intensity ──
+    function trackOpacity() { return trackIntensity/10; }
+    function updateTrackIntensity(v) {
+      trackIntensity = v; storageSet('tl-track-intensity', v);
+      document.getElementById('track-intensity').value = v;
+      Object.entries(trackLayers).forEach(([tid, p]) => {
+        if (tid === selectedId) return;
+        p.setStyle({ opacity: selectedId !== null ? trackOpacity()*0.2 : trackOpacity() });
+      });
+    }
+    (function() {
+      const slider = document.getElementById('track-intensity');
+      slider.value = trackIntensity;
+      slider.addEventListener('input', function() { updateTrackIntensity(parseInt(this.value)); });
     })();
     (function() {
       const heatBtn = document.getElementById('ctrl-heat');
@@ -1064,7 +1090,7 @@
       geoTracks.forEach(t => {
         if (!t.latlngs || !t.latlngs.length) return;
         const color = (typeMeta[t.type]||{}).color || '#888';
-        const poly = L.polyline(t.latlngs, {color,weight:3,opacity:0.72}).addTo(map);
+        const poly = L.polyline(t.latlngs, {color,weight:3,opacity:trackOpacity()}).addTo(map);
         poly.on('click', () => selectTrack(t.id));
         trackLayers[t.id] = poly;
       });
@@ -1127,7 +1153,7 @@
       const poly = trackLayers[id];
       if (poly) { poly.setStyle({weight:5,opacity:1,color:'#ffffff'}); poly.bringToFront(); map.fitBounds(poly.getBounds(), getMapFitOptions(40,16)); }
       Object.entries(trackLayers).forEach(([tid, p]) => {
-        if (tid !== id) { const t=allTracks.find(t=>t.id===tid); p.setStyle({weight:2,opacity:0.15,color:(typeMeta[t?.type]||{}).color||'#888'}); }
+        if (tid !== id) { const t=allTracks.find(t=>t.id===tid); p.setStyle({weight:2,opacity:trackOpacity()*0.2,color:(typeMeta[t?.type]||{}).color||'#888'}); }
       });
       try {
         let track = trackCache.get(id);
@@ -1142,7 +1168,7 @@
     }
     function deselectAll() {
       setHeatOpacity('');
-      Object.entries(trackLayers).forEach(([tid, p]) => { const t=allTracks.find(t=>t.id===tid); p.setStyle({weight:3,opacity:0.72,color:(typeMeta[t?.type]||{}).color||'#888'}); });
+      Object.entries(trackLayers).forEach(([tid, p]) => { const t=allTracks.find(t=>t.id===tid); p.setStyle({weight:3,opacity:trackOpacity(),color:(typeMeta[t?.type]||{}).color||'#888'}); });
       if (startMarker) { map.removeLayer(startMarker); startMarker=null; }
       selectedId=null; lastTrackData=null;
       document.querySelectorAll('.track-item').forEach(el => el.classList.remove('selected'));
