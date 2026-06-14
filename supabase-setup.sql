@@ -109,6 +109,12 @@ AS $$
     GROUP BY user_id;
 $$;
 
+-- SECURITY DEFINER + cross-user aggregate; only the admin-gated
+-- /api/profile?action=list endpoint calls it, via the service role.
+REVOKE ALL ON FUNCTION tl_storage_per_user() FROM PUBLIC;
+REVOKE ALL ON FUNCTION tl_storage_per_user() FROM anon, authenticated;
+GRANT  EXECUTE ON FUNCTION tl_storage_per_user() TO service_role;
+
 -- ── Row Level Security ─────────────────────────────────────────────────────────
 ALTER TABLE tl_activities ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tl_profiles   ENABLE ROW LEVEL SECURITY;
@@ -141,9 +147,13 @@ CREATE TABLE IF NOT EXISTS tl_dropbox_tokens (
     UNIQUE(user_id)
 );
 ALTER TABLE tl_dropbox_tokens ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "tl_dropbox_tokens: select own" ON tl_dropbox_tokens;
-CREATE POLICY "tl_dropbox_tokens: select own"
-    ON tl_dropbox_tokens FOR SELECT USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "tl_dropbox_tokens: select own"   ON tl_dropbox_tokens;
+DROP POLICY IF EXISTS "tl_dropbox_tokens: service only" ON tl_dropbox_tokens;
+-- The app reads this table only through the service-role API (api/dropbox.js),
+-- so no client policy is needed — block all client access, including own rows
+-- (this table holds long-lived OAuth refresh tokens).
+CREATE POLICY "tl_dropbox_tokens: service only"
+    ON tl_dropbox_tokens FOR ALL USING (false);
 
 -- ── Pre-existing user (manual insert) ─────────────────────────────────────────
 -- Pre-existing Supabase users won't get a tl_profiles row from the trigger
